@@ -1,0 +1,2547 @@
+# -*- coding: utf-8 -*-
+"""Lyra · 本地服务(全新实现)
+
+职责:
+  · 起一个本地 HTTP 服务,给界面(WebView2 / 浏览器)提供接口
+  · 管理"剧情挂钩":选游戏 → 检测 → 安装 → 启动 → 接收剧情 → 过滤 → 朗读
+  · 朗读用 core.tts(离线声音包 / SAPI / Edge 都在里面)
+  · AI 辅助(修复错字 / 润色)
+
+不做截图识别、不做悬浮窗、不做自动点击。
+"""
+import json
+import os
+import re
+import shutil
+import sys
+import threading
+import time
+import traceback
+import urllib.parse
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
+import config as cfgm                                  # noqa: E402
+from core import storyhook, tts, voices                # noqa: E402
+from core.storyhook import pick_proxy                    # noqa: E402
+from core import autoclick                               # noqa: E402
+from core import floatwin                                # noqa: E402
+from core import translate as translate_mod              # noqa: E402
+
+try:
+    from core import ai as ai_mod
+except Exception:                                       # AI 是可选功能
+    ai_mod = None
+
+APP_TITLE = "Lyra · Unity 游戏朗读器"
+STATIC_DIR = os.path.join(ROOT, "webapp", "static")
+PORT = int(os.environ.get("LINGYUE_PORT") or 8890)
+LOCK = threading.Lock()
+
+STATE = {
+    "status": "就绪",
+    "lines": [],            # 界面显示的历史(最新在最后)
+    "latest": "",           # 当前句
+    "count": 0,
+    "filtered": 0,
+    "last_reason": "",
+    "speaker": "",
+    "learned": "",          # 最近自动学到的东西
+    "status_at": 0.0,       # 状态最后一次更新的时刻(用于 3 秒回「空闲」)
+}
+
+# ---------------------------------------------------------------- 文本翻译
+TRANSLATOR = translate_mod.Translator(os.path.join(ROOT, "_聆阅_译文缓存.json"))
+TR_FILES = []          # 往游戏目录里放过哪些翻译插件文件(关掉时按这份清单删)
+
+
+def _tr_arch(game: dict) -> str:
+    return "il2cpp_x64" if (game or {}).get("backend") == "IL2CPP" else "mono_x64"
+
+
+def translate_payload_dir(game: dict) -> str:
+    return os.path.join(ROOT, "payload", "translate", _tr_arch(game))
+
+
+def translate_installed(game: dict) -> bool:
+    d = (game or {}).get("dir") or ""
+    if not d:
+        return False
+    p = os.path.join(d, "BepInEx", "plugins", "XUnity.AutoTranslator",
+                     "XUnity.AutoTranslator.Plugin.Core.dll")
+    return os.path.isfile(p)
+
+
+def translate_install(game: dict, on: bool = True) -> dict:
+    """把 XUnity.AutoTranslator(AI 汉化)装进/移出游戏目录。
+
+    只动我们自己放进去的那几个文件,并且记在 _聆阅_已安装清单.json 里 ——
+    和 LDC 一样:**卸载时绝不碰玩家自己装的东西**。
+    """
+    d = (game or {}).get("dir") or ""
+    if not d or not os.path.isdir(d):
+        return {"ok": False, "msg": "找不到游戏目录"}
+    src = translate_payload_dir(game)
+    if on:
+        if not os.path.isdir(src):
+            return {"ok": False, "msg": "安装包里缺少翻译插件文件(重新安装 Lyra 可修复)"}
+        if not (game or {}).get("installed"):
+            return {"ok": False, "msg": "这台游戏的 LDC 还没装 —— 先点「安装 LDC」"}
+        n = 0
+        for base, _dirs, files in os.walk(src):
+            for fn in files:
+                rel = os.path.relpath(os.path.join(base, fn), src)
+                # 说明.txt 是给我们自己看的,不用塞进玩家游戏目录
+                if fn == "说明.txt" or rel.startswith("说明"):
+                    continue
+                s = os.path.join(base, fn)
+                t = os.path.join(d, rel)
+                os.makedirs(os.path.dirname(t), exist_ok=True)
+                try:
+                    shutil.copy2(s, t)
+                    n += 1
+                    if rel not in TR_FILES:
+                        TR_FILES.append(rel)
+                except Exception as e:
+                    return {"ok": False, "msg": f"复制 {rel} 失败:{e}"}
+        _manifest_remember(d, TR_FILES)
+        return {"ok": True, "msg": f"已启用 AI 翻译({n} 个文件),重启游戏后生效"}
+    # 关闭:只删清单里记过的文件
+    gone = 0
+    for rel in list(TR_FILES):
+        t = os.path.join(d, rel)
+        if os.path.isfile(t):
+            try:
+                os.remove(t)
+                gone += 1
+            except Exception:
+                pass
+    for sub in ("BepInEx\\plugins\\XUnity.AutoTranslator",
+                "BepInEx\\plugins\\XUnity.ResourceRedirector"):
+        p = os.path.join(d, sub)
+        try:
+            if os.path.isdir(p) and not os.listdir(p):
+                os.rmdir(p)
+        except Exception:
+            pass
+    _manifest_forget(d)
+    return {"ok": True, "msg": f"已关闭 AI 翻译(移除 {gone} 个文件),重启游戏后恢复原文"}
+
+
+def _manifest_path(game_dir: str) -> str:
+    return os.path.join(game_dir, storyhook.MANIFEST)
+
+
+def _manifest_remember(game_dir: str, rels):
+    try:
+        p = _manifest_path(game_dir)
+        data = {}
+        if os.path.isfile(p):
+            data = json.load(open(p, encoding="utf-8-sig"))
+        data["translate"] = sorted(set(list(data.get("translate") or []) + list(rels)))
+        json.dump(data, open(p, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    except Exception:
+        pass
+
+
+def _manifest_forget(game_dir: str):
+    try:
+        p = _manifest_path(game_dir)
+        if not os.path.isfile(p):
+            return
+        data = json.load(open(p, encoding="utf-8-sig"))
+        data.pop("translate", None)
+        json.dump(data, open(p, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    except Exception:
+        pass
+
+
+def _tr_cfg() -> dict:
+    return cfgm.get().setdefault("translate", {})
+
+
+# ---------------------------------------------------------------- 女声下架后的配置迁移
+_FEMALE_HINT = ("huihui", "yaoyao", "xiaoxiao", "xiaoyi", "hanhan", "xiaobei",
+                "xiaoni", "zira", "hazel", "female")
+
+
+def _is_female_voice(v: str) -> bool:
+    v = (v or "").strip().lower()
+    if not v:
+        return False
+    if v.startswith("sherpa:"):
+        return tts.voice_gender(v) == "female"
+    return any(h in v for h in _FEMALE_HINT)
+
+
+def migrate_voice_cfg() -> list:
+    """一次性修好配置里"已经下架 / 会读错声音"的老数据(幂等,每次启动都跑一遍)。
+
+    要解决的正是玩家反馈的那个现象:「选了语音包,念出来的却不是它的声音」——
+    根因是角色配音/默认配音里存着**女声 SAPI**(慧慧),朗读时按角色切过去,
+    听感就永远不是选中的那个离线声音包。
+    """
+    cfg = cfgm.get()
+    notes = []
+
+    def pick_default() -> str:
+        for pid in ("chaowen", "chaowen_hq"):
+            if voices.is_installed(pid):
+                return "sherpa:" + pid
+        for vid, _lang in tts.list_voices():
+            if tts.is_sherpa_voice(vid) and tts.voice_gender(vid) != "female":
+                return vid
+        for vid, _lang in tts.list_voices():
+            if tts.voice_gender(vid) == "male":
+                return vid
+        return ""
+
+    cur = str(cfg.get("voice") or "")
+    fixed = cur
+    if cur.startswith("sherpa:"):
+        pid = tts.sherpa_pack_of(cur)
+        if pid not in voices.PACK_BY_ID:
+            fixed = pick_default()
+        else:
+            sid = tts.sherpa_speaker_of(cur)
+            males = voices.male_speakers(pid)
+            if males and sid not in males:
+                fixed = f"sherpa:{pid}#{males[sid % len(males)]}"
+    elif cur and _is_female_voice(cur):
+        fixed = pick_default()
+    if fixed != cur:
+        cfg["voice"] = fixed
+        notes.append(f"默认语音 {cur or '(空)'} → {fixed or '(空)'}(女声已下架)")
+
+    cd = str(cfg.get("cast_default") or "")
+    if cd and _is_female_voice(cd):
+        cfg["cast_default"] = ""
+        notes.append("默认配音里的女声(SAPI)已改回「跟随全局语音」")
+
+    cast = cfg.get("cast") or {}
+    changed = 0
+    for name, item in list(cast.items()):
+        if isinstance(item, dict) and item.get("voice") and _is_female_voice(item["voice"]):
+            item["voice"] = ""
+            changed += 1
+    if changed:
+        notes.append(f"{changed} 个角色原来配的是女声,已改成跟随全局语音")
+
+    # 角色名收集表里混进过方法名/菜单词(老版本 bug),清掉
+    seen = cfg.get("cast_seen") or {}
+    storyhook.rebuild_eff()
+    menu = set(storyhook.EFF.get("menu_words") or ())
+    ui_words = set(x.lower() for x in (storyhook.EFF.get("ui_words") or ()))
+    ui_kw = list(storyhook.EFF.get("ui_keywords") or ()) + list(storyhook.EFF.get("game_words") or ())
+    name_bad = list(storyhook.EFF.get("name_blacklist") or ())
+    junk = []
+    for n in list(seen):
+        s = (n or "").strip()
+        if not s:
+            junk.append(n); continue
+        if s in ("set_NameText", "SetText", "set_text", "CharaOff"):     # 老 bug 直接写进来的
+            junk.append(n); continue
+        if s in menu or s.lower() in ui_words:                          # 菜单按钮/英文界面词
+            junk.append(n); continue
+        if any(w and w in s for w in ui_kw + name_bad):                 # 界面词/名字黑名单
+            junk.append(n); continue
+        if not storyhook.as_speaker(s) and not re.search(r"[\u4e00-\u9fff]{2,}", s):
+            junk.append(n); continue                                    # 根本不是名字
+    junk = sorted(set(junk))
+    if junk:
+        for n in junk:
+            seen.pop(n, None)
+        notes.append("角色列表里清掉了 " + str(len(junk)) + " 个不是名字的词")
+
+    hl = cfg.setdefault("hook", {})
+    bad = [x for x in (hl.get("ignored_labels") or []) if "set_" in str(x) or "Set" in str(x)]
+    if bad:
+        hl["ignored_labels"] = [x for x in hl["ignored_labels"] if x not in bad]
+        notes.append("已学规则里的方法名(" + "、".join(bad) + ")清掉了")
+
+    if notes:
+        cfgm.save()
+    return notes
+
+# ---------------------------------------------------------------- 实时指标
+BORN = time.time()
+_M = {"chars": 0, "marks": []}          # 累计字数 + [(时刻, 累计字数)] 用来算读取速度
+_SPK = {"on": False, "end_at": 0.0, "marks": []}   # 朗读中? / 上次念完的时刻 / 朗读速度统计
+
+
+_MEM_API = {}
+
+
+def _mem_mb() -> float:
+    """本进程占用内存(MB)。不依赖 psutil,直接用 psapi。
+
+    注意:必须声明 GetCurrentProcess 的返回类型为 HANDLE —— 否则 ctypes 会按 32 位
+    截断伪句柄(-1),调用静默失败返回 0。
+    句柄/结构体都缓存起来:这个函数每秒要被界面和悬浮窗调好几次。
+    """
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        if not _MEM_API:
+            class PMC(ctypes.Structure):
+                _fields_ = [("cb", wintypes.DWORD), ("PageFaultCount", wintypes.DWORD),
+                            ("PeakWorkingSetSize", ctypes.c_size_t), ("WorkingSetSize", ctypes.c_size_t),
+                            ("QuotaPeakPagedPoolUsage", ctypes.c_size_t), ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                            ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t), ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                            ("PagefileUsage", ctypes.c_size_t), ("PeakPagefileUsage", ctypes.c_size_t)]
+
+            k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            psapi = ctypes.WinDLL("psapi", use_last_error=True)
+            k32.GetCurrentProcess.restype = wintypes.HANDLE
+            psapi.GetProcessMemoryInfo.argtypes = [wintypes.HANDLE, ctypes.POINTER(PMC), wintypes.DWORD]
+            psapi.GetProcessMemoryInfo.restype = wintypes.BOOL
+            _MEM_API.update({"PMC": PMC, "k32": k32, "psapi": psapi,
+                             "proc": k32.GetCurrentProcess()})
+
+        PMC = _MEM_API["PMC"]
+        pmc = PMC()
+        pmc.cb = ctypes.sizeof(PMC)
+        if not _MEM_API["psapi"].GetProcessMemoryInfo(_MEM_API["proc"], ctypes.byref(pmc), pmc.cb):
+            return 0.0
+        return round(pmc.WorkingSetSize / 1024 / 1024, 1)
+    except Exception:
+        return 0.0
+
+
+def note_text(text: str) -> None:
+    """记录读到的文字,用于算"读取速度"(字/秒)。"""
+    n = len(re.findall(r"[\u4e00-\u9fff A-Za-z0-9]", text or ""))
+    now = time.time()
+    _M["chars"] += n
+    _M["marks"].append((now, _M["chars"]))
+    _M["marks"] = [(t, c) for t, c in _M["marks"] if now - t < 20][-200:]
+
+
+def read_rate() -> float:
+    """最近 ~10 秒的读取速度(字/秒)。"""
+    if len(_M["marks"]) < 2:
+        return 0.0
+    now = time.time()
+    recent = [(t, c) for t, c in _M["marks"] if now - t <= 10]
+    if len(recent) < 2:
+        return 0.0
+    dt = recent[-1][0] - recent[0][0]
+    dc = recent[-1][1] - recent[0][1]
+    return round(dc / dt, 1) if dt > 0.3 else 0.0
+
+
+def metrics() -> dict:
+    return {"mem_mb": _mem_mb(), "rate": read_rate(), "chars": _M["chars"],
+            "elapsed": int(time.time() - BORN), "count": STATE["count"]}
+
+
+# ---------------------------------------------------------------- 语音
+class Speaker:
+    def __init__(self):
+        self.q = []
+        self.gen = 0
+        self.lock = threading.Lock()
+        self.busy = False
+        threading.Thread(target=self._worker, daemon=True).start()
+
+    @staticmethod
+    def split_name(text: str):
+        """把 "【角色名】台词" 拆成 (角色名, 台词)。
+
+        过滤器认出发言人时会把名字缀成 【名字】(见 StoryFilter.commit),
+        角色配音就靠这个前缀对上号。拆不出名字就返回 ("", 原文)。
+        """
+        m = re.match(r"^【([^】]{1,16})】\s*(.*)$", text or "", re.S)
+        if m:
+            return m.group(1).strip(), m.group(2).strip()
+        return "", (text or "").strip()
+
+    @staticmethod
+    def speak_text(text: str) -> str:
+        """真正送去朗读的文字:默认**不念角色名**(【名字】前缀),可在设置里打开。"""
+        name, body = Speaker.split_name(text)
+        if name and not cfgm.get().get("say_name"):
+            return body
+        return (text or "").strip()
+
+    @classmethod
+    def cast_of(cls, text: str):
+        """这句台词该用什么配音?返回 (角色名, 配音设置)。
+
+        优先级:
+          1. 角色名 + 这个角色单独配过 → 用他的
+          2. 角色名但没配过 / 干脆没有角色名(旁白) → 用「默认配音」(cast_default)
+          3. 默认配音也没设 → 空({}),回到全局语音
+        """
+        cfg = cfgm.get()
+        if cfg.get("cast_on", True) is False:
+            return "", {}
+        name, _body = cls.split_name(text)
+        entry = (cfg.get("cast") or {}).get(name) if name else None
+        if not isinstance(entry, dict) or not entry.get("voice"):
+            d = str(cfg.get("cast_default") or "").strip()
+            entry = {"voice": d} if d else {}
+        return name, entry
+
+    def say(self, text, interrupt=True, story=False):
+        # ★只有"剧情"才套角色配音★
+        # 手动试听 / 点「朗读一次」不套 —— 否则试听会用「默认配音」(可能是个机械音),
+        # 玩家会以为"换了语音包也没用"(实测踩过)。
+        name, cast = self.cast_of(text) if story else ("", {})
+        text = self.speak_text(text)
+        if not text:
+            return
+        with self.lock:
+            if interrupt:
+                self.gen += 1
+                self.q = []
+                try:
+                    tts.stop()
+                except Exception:
+                    pass
+            self.gen += 1
+            self.q.append((self.gen, text, bool(story), cast))
+
+    def stop(self):
+        with self.lock:
+            self.gen += 1
+            self.q = []
+        try:
+            tts.stop()
+        except Exception:
+            pass
+
+    def _worker(self):
+        cfg = cfgm.get()
+        while True:
+            item = None
+            with self.lock:
+                if self.q:
+                    item = self.q.pop(0)
+            if not item:
+                time.sleep(0.15)
+                continue
+            gen, text, story, cast = item
+            with self.lock:
+                if gen != self.gen:
+                    continue
+            # 角色配音:这句是谁说的就用谁的音色/语速/声线(没配就用全局)
+            voice = str((cast or {}).get("voice") or "")
+            try:
+                rate = float((cast or {}).get("rate") or cfg.get("rate", 1.0))
+            except (TypeError, ValueError):
+                rate = float(cfg.get("rate", 1.0))
+            pitch = (cast or {}).get("pitch")
+            if pitch is None or pitch == "":
+                pitch = cfg.get("pitch", 0.0)
+            _SPK["on"] = True            # 悬浮窗靠这个显示「朗读中」(不去碰 WinRT,免得卡住界面)
+            try:
+                t0 = time.time()
+                # 记一条"这句用了哪个音色":排查"换了语音包但声音没变"全靠它
+                try:
+                    who = tts.voice_label(voice) if voice else (tts.voice_label(tts._voice) or "默认")
+                    add_log(f"朗读[{who}] {text[:36]}", "info")
+                except Exception:
+                    pass
+                tts.speak(text, rate, float(cfg.get("volume", 1.0)),
+                          voice=voice, pitch=pitch)
+            except Exception as e:
+                set_status(f"朗读失败:{e}")
+                continue
+            finally:
+                _SPK["on"] = False
+                _SPK["end_at"] = time.time()   # "念完"的时刻:没文字的补点必须从这一刻起算
+            note_spoken(text, time.time() - t0)
+            # 这段剧情念完了 → 停一下,自动帮玩家点下一句(设置里开着 auto_next 才做)
+            if story:
+                try:
+                    _auto_next_after_read(gen)
+                except Exception as e:
+                    add_log(f"自动下一句出错:{e}", "warn")
+
+
+SPEAKER = Speaker()
+
+
+# ---------------------------------------------------------------- 挂钩
+_LOG_MARK = {"size": -1, "at": 0.0}      # 上次看到的日志大小与时刻
+
+
+def voice_items() -> list:
+    """界面「语音朗读」页要的可选语音列表。
+
+    形状必须和界面约定一致(界面按 kind 分三组、切语音时发 "kind:id"):
+        {id: 裸 id, name: 带前缀的完整 id, label, lang, kind, offline, gender}
+
+    注意:**只列"真的能用"的语音**。离线包走 voices.installed_ids()
+    (即目录里真的有 .onnx 才算装了),所以没下载的包不会出现在列表里 ——
+    之前这里错传了 voices.catalog()(那是"全部声音包的清单",装没装都列),
+    结果就是"没下载的也显示出来",而且 Windows 本机 / Edge 在线两组永远是空的。
+    """
+    out = []
+    try:
+        for vid, lang in tts.list_voices():
+            if tts.is_sherpa_voice(vid):
+                kind, bare = "sherpa", vid.split(":", 1)[1]
+                bundled = voices.is_bundled(tts.sherpa_pack_of(vid)) \
+                    if hasattr(voices, "is_bundled") else False
+            elif tts.is_sapi_voice(vid):
+                kind, bare, bundled = "sapi", vid.split(":", 1)[1], True
+            else:
+                kind, bare, bundled = "edge", vid, False
+            out.append({"id": bare, "name": vid,
+                        "label": tts.voice_label(vid),
+                        "lang": lang or "",
+                        "kind": kind,
+                        "offline": kind != "edge",
+                        "bundled": bundled,
+                        "gender": tts.voice_gender(vid)})
+    except Exception:
+        pass
+    return out
+
+
+def diagnose() -> dict:
+    """用大白话说清楚"现在为什么没读到"。返回 {level, text}。"""
+    try:
+        cur = os.path.normcase(cfgm.get().get("game") or "")
+        gname = os.path.basename(cur) if cur else ""
+        # 1) 游戏在跑吗
+        game_running = bool(gname) and _proc_running(gname)
+        # 2) 日志在吗
+        lp = HOOK.log_path
+        exists = bool(lp) and os.path.exists(lp)
+        size = os.path.getsize(lp) if exists else 0
+        now = time.time()
+        if _LOG_MARK["size"] != size:
+            _LOG_MARK["size"] = size
+            _LOG_MARK["at"] = now
+        quiet = now - _LOG_MARK["at"]
+        behind = size - HOOK.log_pos
+
+        if not cur:
+            return {"level": "warn", "text": "还没选游戏 —— 在游戏库里点一个游戏"}
+        if not game_running and not PAUSED["on"]:
+            return {"level": "warn", "text": f"{gname} 没在运行 —— 打开游戏就会自动继续读取"}
+        if not exists:
+            return {"level": "error", "text": "没找到剧情日志:说明插件没装上 —— "
+                                              "点「安装 LDC」,然后重启游戏"}
+        if PAUSED["on"]:
+            return {"level": "warn", "text": f"{gname} 已关闭,读取已暂停(重新打开游戏会自动恢复)"}
+        if not dlp_on():
+            return {"level": "error", "text": "这个游戏的 LDC 是关闭的 —— "
+                                             "打开游戏卡片上的 LDC 开关才会读"}
+        if HOOK._thread is None or not HOOK._thread.is_alive():
+            return {"level": "error", "text": "读取线程异常(已自动重启中)"}
+        if behind > 4096:
+            return {"level": "warn", "text": f"正在追赶:还有 {behind // 1024} KB 没读完(会自动追上)"}
+        if game_running and quiet > 20:
+            return {"level": "info", "text": f"游戏在运行,但已经 {int(quiet)} 秒没有新文本 —— "
+                                             f"多半是在等你操作,或这段没有台词"}
+        return {"level": "ok", "text": f"正常读取中(最近一次文本在 {int(quiet)} 秒前)"}
+    except Exception as e:
+        return {"level": "warn", "text": f"状态判断出错:{e}"}
+
+
+def _native_hwnd():
+    """运行器的原生窗口句柄(找不到就返回 0)。"""
+    try:
+        import ctypes
+        return int(ctypes.windll.user32.FindWindowW("LyraWindow", None) or 0)
+    except Exception:
+        return 0
+
+
+def apply_topmost(on: bool) -> bool:
+    """把运行器的窗口置顶 / 取消置顶。网页自己是做不到的,必须调 Win32。
+
+    坑:SetWindowPos 的第二个参数是 HWND(64 位指针),传 Python 的 -1 会被当成
+    32 位整数(HWND_TOPMOST 失效)。必须用 c_void_p(-1) 并声明 argtypes。
+    """
+    h = _native_hwnd()
+    if not h:
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+        u = ctypes.WinDLL("user32", use_last_error=True)
+        u.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
+                                   ctypes.c_int, ctypes.c_int, ctypes.c_uint]
+        u.SetWindowPos.restype = wintypes.BOOL
+        SWP_NOSIZE, SWP_NOMOVE, SWP_NOACTIVATE = 0x0001, 0x0002, 0x0010
+        HWND_TOPMOST = wintypes.HWND(-1)          # 关键:按指针宽度传 -1
+        HWND_NOTOPMOST = wintypes.HWND(-2)
+        ok = u.SetWindowPos(wintypes.HWND(h), HWND_TOPMOST if on else HWND_NOTOPMOST,
+                            0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE)
+        return bool(ok)
+    except Exception as e:
+        print("置顶失败:", e)
+        return False
+
+
+def _topmost_loop():
+    """定时把置顶状态同步到原生窗口(窗口刚创建时可能还没有句柄)。"""
+    last = None
+    while True:
+        time.sleep(1.5)
+        try:
+            want = bool(cfgm.get().get("on_top", True))
+            if want != last or (want and not _hwnd_is_topmost()):
+                if apply_topmost(want):
+                    last = want
+        except Exception:
+            pass
+
+
+def _hwnd_is_topmost() -> bool:
+    h = _native_hwnd()
+    if not h:
+        return False
+    try:
+        import ctypes
+        return bool(ctypes.windll.user32.GetWindowLongW(h, -20) & 0x00000008)
+    except Exception:
+        return False
+
+
+def dlp_on() -> bool:
+    """当前游戏的 LDC 是否开着。关掉就一个字都不读。"""
+    cfg = cfgm.get()
+    cur = os.path.normcase(cfg.get("game") or "")
+    if not cur:
+        return False
+    for g in (cfg.get("games") or []):
+        if os.path.normcase(g.get("path") or "") == cur:
+            return g.get("dlp") is not False
+    return False                      # 不在库里的游戏,一律不读
+
+
+PAUSED = {"on": False}          # True = 游戏已关闭,暂停读取(程序不退出)
+RUNNING = {"exe": "", "name": "", "active": False}   # 正在运行的游戏(界面据此锁切换/变按钮)
+# 读到过的角色名要落盘:以前只在内存里,重开程序就"一个角色都认不出来"(玩家实测)
+_SEEN = {"dirty": False}
+
+
+def _seen_load():
+    """启动时把上次记住的角色名读回来。"""
+    try:
+        saved = cfgm.get().get("cast_seen") or {}
+        STATE["speakers"] = {str(k): int(v) for k, v in saved.items()}
+    except Exception:
+        STATE["speakers"] = {}
+
+
+def _seen_loop():
+    while True:
+        time.sleep(5)
+        try:
+            if _SEEN["dirty"]:
+                _SEEN["dirty"] = False
+                with LOCK:
+                    top = dict(sorted((STATE.get("speakers") or {}).items(),
+                                      key=lambda kv: -kv[1])[:200])
+                cfgm.get()["cast_seen"] = top
+                cfgm.save()
+        except Exception:
+            pass
+
+
+_seen_load()                                   # 让上次记住的角色名立刻可用
+threading.Thread(target=_seen_loop, daemon=True, name="castseen").start()
+
+
+def _on_line(text):
+    if PAUSED["on"]:
+        return                        # 游戏已关闭,暂停读取
+    if not dlp_on():
+        return                        # LDC 关着就丢掉,不进列表也不朗读
+    with LOCK:
+        STATE["lines"].append(text)
+        if len(STATE["lines"]) > 500:
+            STATE["lines"] = STATE["lines"][-300:]
+        STATE["latest"] = text
+        STATE["count"] += 1
+    _NEXT["last_line_at"] = time.time()      # 有新台词了:重置"没文字"计数
+    _NEXT["blank_streak"] = 0
+    _NEXT["warned"] = False
+    # 记下出现过的角色名(角色配音页用来"一键加入";存配置文件,重开程序不丢)
+    _name, _ = Speaker.split_name(text)
+    if _name:
+        with LOCK:
+            sp = STATE.setdefault("speakers", {})
+            sp[_name] = sp.get(_name, 0) + 1
+        _SEEN["dirty"] = True
+    note_text(text)
+    add_log(text, "game", text=text)
+    # 开了翻译就顺手把原文送去翻(阅读器这边也能拿到译文;XUnity 那边是同步问的)
+    if _tr_cfg().get("on") and _tr_cfg().get("prefetch", True):
+        _spoken = Speaker.speak_text(text)
+        TRANSLATOR.prefetch([text, _spoken] if _spoken and _spoken != text else [text],
+                            cfgm.get().get("ai") or {})
+    cfg = cfgm.get()
+    if cfg.get("auto_say"):
+        # story=True:这是剧情(不是手动点「读一下」),念完后可以自动点下一句
+        SPEAKER.say(text, bool(cfg.get("hook", {}).get("interrupt", True)), story=True)
+
+
+# 自动下一句的进度:上一次拿到台词的时刻 / 上一次自动点的时刻 / 连续空点次数
+_NEXT = {"last_line_at": 0.0, "last_click_at": 0.0, "blank_streak": 0, "warned": False}
+
+
+def do_advance(exe: str, cfg: dict) -> tuple:
+    """推进一句。返回 (成功?, 说明)。
+
+    ★静默优先★:让游戏自己在内部点一下(LDC 插件伪造一次点击),
+    真实鼠标一动不动 —— 玩家切出去看网页也不会被抢鼠标,更不会误点到别的窗口。
+    插件没回执 / 回执说不行(个别游戏点不动),才退回老的"移动鼠标点一下"。
+    """
+    if cfg.get("auto_next_silent", True) and (HOOK.game or {}).get("dir"):
+        r = HOOK.silent_advance()
+        if r.get("ok"):
+            time.sleep(0.25)                       # 给插件一点时间做动作 + 写回执
+            ack = _read_click_ack()
+            if ack is None:
+                return True, "已让游戏自己点了一下(鼠标没动)"
+            if ack[0] == "ok":
+                return True, "已在游戏内部点了一下 —— " + (ack[1] or "鼠标没动")
+            if not cfg.get("auto_next_fallback", True):
+                return False, "静默推进失败:" + (ack[1] or "插件点不动这个游戏")
+            add_log("静默推进没成功(" + (ack[1] or "?") + "),改用鼠标点一下", "warn")
+        elif not cfg.get("auto_next_fallback", True):
+            return False, r.get("msg") or "静默推进不可用"
+    return autoclick.click_for_game(exe, str(cfg.get("auto_next_point") or "center"))
+
+
+def _read_click_ack():
+    """读插件的点击回执(没有就当没这回事)。"""
+    d = (HOOK.game or {}).get("dir") or ""
+    if not d:
+        return None
+    p = os.path.join(d, "BepInEx", storyhook.CLICK_ACK)
+    try:
+        if not os.path.isfile(p):
+            return None
+        txt = open(p, encoding="utf-8", errors="ignore").read().strip()
+        os.remove(p)
+        if not txt:
+            return None
+        parts = txt.split("\t", 1)
+        return (parts[0].strip(), parts[1].strip() if len(parts) > 1 else "")
+    except Exception:
+        return None
+
+
+def _auto_next_after_read(gen: int):
+    """一段剧情**朗读完**了:按设置停一下,然后帮玩家点一下游戏画面进下一句。
+
+    只在"确实是剧情朗读、而且这段念完了"时动手:
+      · 设置里 auto_next 开着
+      · 游戏在跑、LDC 开着、没被暂停
+      · 期间玩家没按停止 / 没有新剧情打断(gen 变了就放弃)
+      · 点击目标点必须属于这个游戏的窗口(autoclick 里把关)
+    """
+    cfg = cfgm.get()
+    if not cfg.get("auto_next"):
+        return
+    if PAUSED["on"] or not dlp_on():
+        return
+    # 存档/读档等菜单界面里绝不点击:那里的按钮可能直接**覆盖存档**
+    if HOOK.filter.menu_active():
+        add_log("现在停在存档/菜单界面,不点下一句(避免误触)", "info")
+        return
+    try:
+        delay = max(0.0, min(10.0, float(cfg.get("auto_next_delay", 1.0) or 0.0)))
+    except Exception:
+        delay = 1.0
+    waited = 0.0
+    while waited < delay:                  # 分段等:中途被打断就立刻放弃
+        time.sleep(0.1)
+        waited += 0.1
+        if SPEAKER.gen != gen or PAUSED["on"] or not cfgm.get().get("auto_next"):
+            return
+    path = cfgm.get().get("game") or ""
+    exe = os.path.basename(path)
+    if not exe:
+        add_log("自动下一句:还没选游戏,没点", "warn")
+        return
+    ok, msg = do_advance(exe, cfgm.get())
+    add_log(("自动下一句:" if ok else "自动下一句没点:") + msg, "info" if ok else "warn")
+    if ok:
+        _NEXT["last_click_at"] = time.time()
+        set_status(f"剧情读完了,停了 {delay:g} 秒,已自动" + ("推进" if "鼠标没动" in msg else "点") + "下一句")
+
+
+def _blank_next_tick():
+    """没有文字的过场剧情:等一会儿还是没新台词,就自动再点一次。
+
+    有些剧情步骤(演出/效果/只有"点击继续"指示)压根不设置任何文本,靠"抓到台词才点"
+    就会卡在那儿不动。这里用"多久没有新台词"来判断,并加了三道闸:
+      · 必须是 自动下一句 + 自动朗读 都开着,而且这一步之前确实读到过剧情(说明在剧情里)
+      · 正在朗读时不点(别把当前这句打断)
+      · 连续空点超过 auto_next_blank_max 次就停手(防止在菜单/选项画面上乱点)
+    """
+    cfg = cfgm.get()
+    if not cfg.get("auto_next") or not cfg.get("auto_next_blank"):
+        return
+    if not cfg.get("auto_say"):
+        return                            # 没在自动朗读 = 玩家自己在玩,不要帮他点
+    if HOOK.filter.menu_active():
+        return                            # 菜单界面(存档/读档/设置)里不点
+    if PAUSED["on"] or not dlp_on():
+        return
+    path = cfg.get("game") or ""
+    exe = os.path.basename(path)
+    if not exe:
+        return
+    # 用内存里的运行状态(_watch_loop 每 3 秒维护),别在 0.5 秒的循环里起 tasklist
+    if not RUNNING["active"]:
+        return
+    now = time.time()
+    if not _NEXT["last_line_at"]:
+        return                            # 还没读到过任何剧情:可能在标题/菜单,不点
+    if now - _NEXT["last_line_at"] > 180:
+        return                            # 太久没剧情了(多半已经离开剧情),不点
+    # 正在朗读就不许点 —— 这里**必须**用朗读线程维护的 _SPK["on"]:
+    # tts.is_playing() 读的是媒体播放器状态,本机语音(SAPI)那条路不经过播放器,
+    # 念着也会返回 False,结果就是"话还没念完就点下一句"(用户实测到的问题)。
+    if _SPK["on"]:
+        return
+    if SPEAKER.q:
+        return                            # 队列里还有没念完的
+    try:
+        wait = max(0.8, min(30.0, float(cfg.get("auto_next_blank_wait", 2.5) or 2.5)))
+    except Exception:
+        wait = 2.5
+    # 等待时间要从"这句念完"那一刻开始算,不能从"抓到文字"那一刻算
+    base = max(_NEXT["last_line_at"], _NEXT["last_click_at"], _SPK.get("end_at") or 0.0)
+    if now - base < wait:
+        return
+    try:
+        cap = max(1, min(50, int(cfg.get("auto_next_blank_max", 6) or 6)))
+    except Exception:
+        cap = 6
+    if _NEXT["blank_streak"] >= cap:
+        if not _NEXT["warned"]:
+            _NEXT["warned"] = True
+            add_log(f"连着自动点了 {cap} 次还是没有新剧情,先停手 —— "
+                    f"可能停在了选项/菜单上,需要你自己点一下", "warn")
+            set_status("自动下一句:连续几步没有文字,先停手了")
+        return
+    ok, msg = do_advance(exe, cfg)
+    _NEXT["last_click_at"] = now
+    _NEXT["blank_streak"] += 1            # 点不成也算一次:别每 0.5 秒反复起进程去试
+    if ok:
+        gap = now - (_SPK.get("end_at") or now)
+        add_log("念完已经静默 %.1f 秒还是没有新文字,自动推进了一下(第 %d 次)"
+                % (gap, _NEXT["blank_streak"]), "info")
+    elif not _NEXT["warned"]:
+        _NEXT["warned"] = True
+        add_log("这一步没有文字,但没能点:" + msg, "warn")
+
+
+def _blank_next_loop():
+    while True:
+        time.sleep(0.5)
+        try:
+            _blank_next_tick()
+        except Exception as e:
+            add_log(f"没文字自动点出错:{e}", "warn")
+
+
+threading.Thread(target=_blank_next_loop, daemon=True, name="blanknext").start()
+
+
+def _on_status(msg):
+    set_status(msg)
+
+
+import collections
+
+LOG_RING = collections.deque(maxlen=600)      # 最近事件(给界面「日志」面板看)
+LOG_STAT = collections.Counter()              # 各分类累计条数(界面上的角标)
+
+
+def add_log(msg, level="info", text=None, raw=None):
+    """记一条日志。level: game(剧情)/ filter(已过滤)/ junk(跳过噪音)/ info / warn / error
+
+    text: 这一条**对应的原始文本**(剧情/被过滤/被跳过的句子)。界面里点日志条目
+    弹「加入黑名单/白名单」时用的就是它 —— 不带上就得从展示文字里猜,必错。
+    """
+    try:
+        LOG_RING.append({"t": time.strftime("%H:%M:%S"), "level": level,
+                         "msg": str(msg)[:400],
+                         "text": str(text)[:500] if text else "",
+                         "raw": str(raw)[:800] if raw else ""})
+        LOG_STAT[level] += 1
+    except Exception:
+        pass
+
+
+# 同类日志的节流:第一次必记,之后每 N 次记一条 —— 免得把 400 条环形缓冲刷爆
+_LOG_SEEN = collections.OrderedDict()
+
+
+def add_log_throttled(msg, level, key, every=20, text=None):
+    n = _LOG_SEEN.get(key, 0) + 1
+    _LOG_SEEN[key] = n
+    if len(_LOG_SEEN) > 300:
+        _LOG_SEEN.popitem(last=False)
+    if n == 1 or n % every == 0:
+        add_log(msg + ("   (同类第 %d 次)" % n if n > 1 else ""), level, text=text)
+
+
+def set_status(msg):
+    """更新状态栏文字。idle_loop 会在 3 秒没有新消息后把它改回「空闲」。"""
+    with LOCK:
+        STATE["status"] = str(msg)[:120]
+        STATE["status_at"] = time.time()
+    txt = str(msg)
+    lv = "error" if ("失败" in txt or "出错" in txt or "异常" in txt) else (
+        "warn" if ("不完整" in txt or "无法" in txt or "占用" in txt) else "info")
+    add_log(txt, lv)
+
+
+def _idle_loop():
+    while True:
+        time.sleep(0.5)
+        try:
+            with LOCK:
+                if STATE.get("status") not in ("空闲", "") and \
+                   time.time() - STATE.get("status_at", 0) > 3.0:
+                    STATE["status"] = "空闲"
+        except Exception:
+            pass
+
+
+threading.Thread(target=_idle_loop, daemon=True).start()
+threading.Thread(target=_topmost_loop, daemon=True).start()
+
+
+def _on_learn(label, text):
+    with LOCK:
+        STATE["learned"] = (f"自动学会:【{label}】是界面面板,以后忽略" if label
+                            else "已记录一条非剧情句子")
+    cfg = cfgm.get()
+    cfg.setdefault("hook", {})
+    cfg["hook"]["ignored_labels"] = sorted(HOOK.filter.ignored_labels)
+    cfg["hook"]["ignored_texts"] = sorted(HOOK.filter.ignored_texts)
+    cfgm.save()
+
+
+# 过滤规则:从配置里恢复(界面改过的规则在 config.json 的 rules 里)
+storyhook.load_rules(cfgm.get().get("rules") or {})
+for _k in (cfgm.get().get("rules_profile_off") or []):
+    storyhook.PROFILE_OFF.add(_k)
+storyhook.rebuild_eff()
+
+
+HOOK = storyhook.HookManager(
+    payload_dir=os.path.join(ROOT, "payload"),
+    hooks_dir=os.path.join(ROOT, "hooks"),
+    on_line=_on_line, on_status=_on_status)
+def _on_filtered(text, why):
+    """被规则挡下的句子 —— 也记进日志面板(「已过滤」页签),方便判断是不是误杀。"""
+    add_log_throttled("未读[%s]: %s" % (why, text[:70]), "filter", (why, text[:40]),
+                      every=15, text=text)
+
+
+def _on_skipped(method, text):
+    """被当成引擎噪音跳过的行(「跳过噪音」页签)。
+
+    这类行可能成千上万,所以按"方法+文本"去重 + 节流:第一次必记,之后每 50 次记一条。
+    """
+    add_log_throttled("跳过[%s]: %s" % (method or "?", text[:60]), "junk",
+                      (method, text[:40]), every=50, text=text)
+
+
+def _on_replay():
+    """识别出"回存档在读之前的剧情":去重记忆已自动清空。"""
+    set_status("检测到你在读档重读之前的剧情 —— 已放开去重,可以再读一遍了")
+    add_log("检测到读档重读:已自动放开去重(同一段剧情会重新读出来)", "info")
+
+
+HOOK.filter.on_learn = _on_learn
+HOOK.filter.on_filtered = _on_filtered
+HOOK.filter.on_replay = _on_replay
+HOOK.on_skipped = _on_skipped
+
+
+def apply_translate_cfg():
+    """把翻译设置同步给读取端(是否朗读译文 / 打字机多等一会儿)。"""
+    tr = _tr_cfg()
+    on = bool(tr.get("on"))
+    HOOK.say_translation = bool(on and tr.get("say"))
+    try:
+        wait = float(tr.get("wait", 1.0) or 0)
+    except Exception:
+        wait = 1.0
+    # 朗读译文时要多等一会儿,等 XUnity 把中文送回来顶掉原文
+    HOOK.filter.settle = 0.45 + (max(0.0, min(4.0, wait)) if HOOK.say_translation else 0.0)
+    cfg = cfgm.get()
+    HOOK.silent_click = bool(cfg.get("auto_next_silent", True))
+    # 翻译开着的时候,装 LDC **不能**顺手把 XUnity 清掉(译文就是靠它写回游戏的)
+    HOOK.keep_xunity = bool(on)
+
+
+apply_translate_cfg()
+_voice_notes = migrate_voice_cfg()
+for _n in _voice_notes:
+    add_log("已修正:" + _n, "info")
+_hook_cfg = cfgm.get().get("hook", {})
+HOOK.filter.min_cjk = int(_hook_cfg.get("min_cjk", 4))
+HOOK.filter.strict = bool(_hook_cfg.get("strict", True))
+HOOK.filter.extra_words = list(_hook_cfg.get("extra_words") or [])
+HOOK.filter.ignored_labels = set(_hook_cfg.get("ignored_labels") or [])
+HOOK.filter.ignored_texts = set(_hook_cfg.get("ignored_texts") or [])
+HOOK.profile = cfgm.get().get("hook_profile") or "gameonly"
+HOOK.profile_args = cfgm.get().get("hook_args") or "any"
+HOOK.start()
+
+
+# ---------------------------------------------------------------- 游戏
+_ICON_CACHE = {}          # exe 路径 -> PNG data URL(提取一次就记住,轮询时不重复劳动)
+
+
+# ---------------------------------------------------------------- 自动扫描 / 进程监控
+def unity_only(items, strict=True):
+    """补上后端/位数/LDC 状态/图标;strict=True 时只留**确定**是 Unity 的。
+
+    strict=True 用于「Steam 库」和自动入库 —— detect_game 有个 "Mono(推测)" 兜底,
+    不收紧的话 Steam.exe、壁纸引擎这类也会被当成游戏。
+    strict=False 用于「桌面快捷方式」:玩家要能看到自己桌面上的东西(哪怕不是 Unity),
+    界面上会用标签标出后端,能不能读一目了然。
+    """
+    out = []
+    for it in items or []:
+        path = it.get("path") or ""
+        if not path or not os.path.exists(path):
+            continue
+        info = storyhook.detect_game(path)
+        if strict and info["backend"] not in ("Mono", "IL2CPP"):
+            continue
+        it["backend"] = info["backend"]
+        it["bits"] = info["bits"]
+        it["installed"] = storyhook.HookManager.installed(HOOK, info)
+        it["icon"] = icon_for(path)
+        out.append(it)
+    return out
+
+
+def scan_unity_games():
+    """扫描 Steam 库 + 桌面快捷方式,只留 Unity 的。"""
+    from core import games as games_mod
+    found = games_mod.discover(limit=80)
+    items = []
+    if isinstance(found, dict):
+        items = list(found.get("steam") or []) + list(found.get("desktop") or [])
+    elif isinstance(found, list):
+        items = found
+    seen, merged = set(), []
+    for it in items:
+        key = os.path.normcase(it.get("path") or "")
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        merged.append(it)
+    return merged
+
+
+def auto_add_unity(force=False) -> dict:
+    """扫描并把 Unity 游戏加进游戏库(只有玩家点「重新扫描」时才调用)。
+
+    注意:玩家手动移除过的游戏记在 removed 黑名单里,不再自动加回来 ——
+    否则"删了又被扫回来"很烦人。
+    """
+    cfg = cfgm.get()
+    games = cfg.setdefault("games", [])
+    removed = {os.path.normcase(x) for x in (cfg.get("removed") or [])}
+    have = {os.path.normcase(g.get("path") or "") for g in games}
+    added = 0
+    try:
+        for it in unity_only(scan_unity_games(), strict=True):
+            key = os.path.normcase(it["path"])
+            if key in removed:
+                continue                      # 玩家删掉的,别再加回来
+            if key in have:
+                # 顺手刷新一次后端信息
+                for g in games:
+                    if os.path.normcase(g.get("path") or "") == key:
+                        g["info"] = {"backend": it.get("backend"), "bits": it.get("bits"),
+                                     "installed": it.get("installed"),
+                                     "steam_appid": storyhook.steam_appid(it["path"])}
+                continue
+            games.append({
+                "name": it.get("name") or os.path.splitext(os.path.basename(it["path"]))[0],
+                "path": it["path"],
+                "dlp": True,                    # LDC 默认开着
+                "info": {"backend": it.get("backend"), "bits": it.get("bits"),
+                         "installed": it.get("installed"),
+                         "steam_appid": storyhook.steam_appid(it["path"])},
+            })
+            have.add(key)
+            added += 1
+        if added:
+            cfgm.save()
+            set_status(f"已自动加入 {added} 个 Unity 游戏")
+    except Exception as e:
+        traceback.print_exc()
+        set_status(f"扫描游戏出错:{e}")
+    return {"added": added, "total": len(games)}
+
+
+# ---- 进程监控:游戏关了 → 停止读取剧情,但**主程序保持运行** ----
+_WATCH = {"exe": "", "seen": False, "since": 0.0, "lines0": 0}
+
+
+def watch_launch(exe: str):
+    _WATCH["exe"] = exe
+    _WATCH["seen"] = False
+    _WATCH["since"] = time.time()
+    _WATCH["lines0"] = STATE["count"]
+    PAUSED["on"] = False         # 又启动了,恢复读取
+    RUNNING["exe"] = exe
+    RUNNING["name"] = os.path.basename(exe)
+    RUNNING["active"] = True
+    set_status(f"已开始监控 {os.path.basename(exe)}")
+
+
+def _proc_running(exe_name: str) -> bool:
+    try:
+        import subprocess
+        r = subprocess.run(["tasklist", "/FI", f"IMAGENAME eq {exe_name}", "/NH"],
+                           capture_output=True, text=True, timeout=8,
+                           creationflags=0x08000000)
+        return exe_name.lower() in (r.stdout or "").lower()
+    except Exception:
+        return True          # 查不到就当在跑,避免误判
+
+
+def _watch_loop():
+    while True:
+        time.sleep(3)
+        try:
+            # A) 不管游戏是谁启动的(本程序 / Steam / 双击),
+            #    只要当前游戏进程在跑,就不该处于"暂停读取"状态。
+            cur = cfgm.get().get("game") or ""
+            if cur:
+                cname = os.path.basename(cur)
+                if _proc_running(cname):
+                    if PAUSED["on"]:
+                        PAUSED["on"] = False
+                        HOOK.log_path = os.path.join(HOOK.game["dir"], "BepInEx", "storyhook.log") \
+                            if HOOK.game else ""
+                        set_status(f"检测到 {cname} 在运行,已恢复读取剧情")
+                    RUNNING["active"] = True
+                    RUNNING["name"] = cname
+                    RUNNING["exe"] = cur
+                    if not _WATCH["exe"]:
+                        _WATCH["exe"] = cur
+            if not cfgm.get().get("watch_game", True):
+                continue
+            exe = _WATCH["exe"]
+            if not exe:
+                continue
+            name = os.path.basename(exe)
+            if _proc_running(name):
+                _WATCH["seen"] = True
+                if PAUSED["on"]:
+                    PAUSED["on"] = False
+                    set_status(f"{name} 又启动了,继续读取剧情")
+                continue
+            if not _WATCH["seen"]:
+                # 刚启动还没起来(最多等 90 秒)
+                if time.time() - _WATCH["since"] > 90:
+                    _WATCH["exe"] = ""
+                continue
+            # 之前见过、现在没了 → 游戏已关闭:停止读取,但**不退出主程序**
+            _WATCH["exe"] = ""
+            RUNNING["active"] = False
+            RUNNING["exe"] = ""
+            if not PAUSED["on"]:
+                PAUSED["on"] = True
+                try:
+                    SPEAKER.stop()
+                except Exception:
+                    pass
+                HOOK.log_path = ""            # 断开剧情日志,不再读
+                with LOCK:
+                    STATE["latest"] = ""
+                # 闪退提醒:刚启动没一会儿就退出、而且已经抓到过剧情 →
+                # 多半是LDC 跟这个游戏不兼容(实测 AnaDos),给一句能照做的提示。
+                life = time.time() - _WATCH["since"]
+                got = STATE["count"] - _WATCH["lines0"]
+                if life < 240 and got > 0:
+                    set_status(f"{name} 启动 {int(life)} 秒后就退出了(像是闪退)。"
+                               f"如果它平时能正常玩,去「设置 → 读取模块」把注入方式换成 "
+                               f"version.dll 并重新安装 LDC;还闪退就把这个游戏的 LDC 关掉")
+                else:
+                    set_status(f"{name} 已关闭,已停止读取剧情(本程序继续运行)")
+        except Exception:
+            pass
+
+
+threading.Thread(target=_watch_loop, daemon=True).start()
+
+
+# ---------------------------------------------------------------- 悬浮窗(左上角信息条)
+# 采样线程每 0.5 秒算好一份数据放这里,窗口线程**只读这份缓存**。
+# 为什么必须这样:窗口线程跑的是 Win32 消息循环,一旦在里面调了会阻塞的东西
+# (比如 tts.is_playing() 要碰 WinRT 媒体接口),整个悬浮窗就"卡住"不动了 ——
+# 之前用户遇到的就是这个,只能关了再开。
+_FLOAT_DATA = {}
+
+
+def note_spoken(text: str, seconds: float) -> None:
+    """记一段念完的文字,用于算"朗读速度"(字/秒)。"""
+    n = len(re.findall(r"[\u4e00-\u9fff A-Za-z0-9]", text or ""))
+    now = time.time()
+    if n and seconds and seconds > 0.05:
+        _SPK["marks"].append((now, n / seconds))
+        _SPK["marks"] = _SPK["marks"][-20:]
+
+
+def speak_rate() -> float:
+    """最近几次朗读的平均速度(字/秒)。"""
+    m = _SPK["marks"]
+    if not m:
+        return 0.0
+    recent = [v for _t, v in m[-5:]]
+    return round(sum(recent) / len(recent), 1)
+
+
+def _float_state() -> str:
+    """当前状态(给悬浮窗显示"读取文字中 / 朗读中 / 待机中"…)。"""
+    cfg = cfgm.get()
+    if not (cfg.get("game") or ""):
+        return "nogame"
+    if PAUSED["on"]:
+        return "paused"
+    if not RUNNING["active"]:
+        return "norun"
+    if not dlp_on():
+        return "hookoff"
+    if HOOK.filter.menu_active():
+        return "menu"                   # 存档/读档等菜单界面:暂停读取,也不自动点
+    if _SPK["on"]:
+        return "speaking"
+    if time.time() - _NEXT["last_line_at"] < 3.0:
+        return "reading"
+    return "idle"
+
+
+def _float_sample():
+    """采样线程:把悬浮窗要显示的东西算好(所有可能阻塞的调用都在这里做)。"""
+    global _FLOAT_DATA
+    cfg = cfgm.get()
+    path = cfg.get("game") or ""
+    exe = os.path.basename(path)
+    name = os.path.splitext(exe)[0] if exe else ""
+    mem = _mem_mb()
+    try:
+        rr = read_rate()
+    except Exception:
+        rr = 0.0
+    sub = []
+    if mem:
+        sub.append("内存 %.0fMB" % mem)
+    sub.append("读取 %.1f字/秒" % rr)
+    if STATE["count"]:
+        sub.append("已读 %d" % STATE["count"])
+    cells = [
+        ("内存", "%.0f MB" % mem if mem else "—"),
+        ("读取速度", "%.1f 字/秒" % rr),
+        ("朗读速度", ("%.1f 字/秒" % speak_rate()) if _SPK["marks"] else "—"),
+        ("已读 / 过滤", "%d / %d" % (STATE["count"], HOOK.filter.filtered)),
+    ]
+    _FLOAT_DATA = {
+        "state": _float_state(),
+        "sub": " · ".join(sub),
+        "game": name or "",
+        "text": STATE["latest"],
+        "count": STATE["count"],
+        "cells": cells,
+        "auto_say": bool(cfg.get("auto_say")),
+        "auto_next": bool(cfg.get("auto_next")),
+        "corner": int(cfg.get("float_corner", 18) or 0),
+        "theme": cfg.get("theme") or "dark",      # 悬浮窗按主题换配色
+        "md3": (cfg.get("theme") or "") == "md3",
+    }
+
+
+def _float_data() -> dict:
+    """窗口线程调用:只返回缓存(绝对不能在这里做耗时/会阻塞的事)。"""
+    return _FLOAT_DATA
+
+
+def _float_sampler():
+    while True:
+        try:
+            _float_sample()
+        except Exception:
+            pass
+        time.sleep(0.5)
+
+
+threading.Thread(target=_float_sampler, daemon=True, name="floatsample").start()
+
+
+def _float_action(key: str):
+    """悬浮窗上的开关/按钮。"""
+    cfg = cfgm.get()
+    if key in ("auto_say", "auto_next"):
+        new = not bool(cfg.get(key))
+        cfg[key] = new
+        cfgm.save()
+        label = "自动朗读" if key == "auto_say" else "自动点击"
+        set_status(f"{label}:" + ("开" if new else "关"))
+        add_log(f"悬浮窗:{label} → {'开' if new else '关'}", "info")
+        return
+    if key == "stop":
+        SPEAKER.stop()
+        set_status("已停止朗读")
+        return
+    if key == "read":
+        text = STATE["latest"]
+        if text:
+            SPEAKER.say(text, True)
+            set_status("重读当前这句")
+        return
+    if key == "main":
+        h = _native_hwnd()
+        if not h:
+            set_status("找不到主窗口(可能还没打开)")
+            return
+        try:
+            import ctypes
+            from ctypes import wintypes
+            u = ctypes.WinDLL("user32", use_last_error=True)
+            u.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+            u.SetForegroundWindow.argtypes = [wintypes.HWND]
+            u.ShowWindow(wintypes.HWND(h), 9)          # SW_RESTORE:最小化了也能叫回来
+            u.SetForegroundWindow(wintypes.HWND(h))
+            set_status("已切到主界面")
+        except Exception as e:
+            set_status(f"切主界面失败:{e}")
+        return
+    if key == "hide":
+        cfg["float_on"] = False
+        cfgm.save()
+        set_status("悬浮窗已隐藏(设置 → 悬浮窗 里能再打开)")
+        if FLOAT:
+            FLOAT.hide()                      # 只隐藏,不销毁(见 _float_apply 的说明)
+
+
+FLOAT = None
+
+
+def _float_start() -> bool:
+    """按设置启动悬浮窗(已经开着就返回 True)。"""
+    global FLOAT
+    if os.environ.get("LINGYUE_NO_FLOAT"):
+        return False
+    try:
+        if FLOAT and FLOAT.alive:
+            return True
+        FLOAT = floatwin.FloatWin(data_getter=_float_data, on_action=_float_action)
+        return bool(FLOAT.start())
+    except Exception as e:
+        add_log(f"悬浮窗启动失败:{e}", "warn")
+        FLOAT = None
+        return False
+
+
+def _float_apply():
+    """设置变化后让悬浮窗跟着开/关/换圆角。
+
+    关掉时只**隐藏**(不销毁):窗口类在进程里只能注册一次,销毁再建会让新窗口
+    把消息发给已经作废的旧对象 —— 那正是"关掉再打开后展开点不动"的原因。
+    """
+    global FLOAT
+    cfg = cfgm.get()
+    if cfg.get("float_on"):
+        if FLOAT and not FLOAT.alive:
+            FLOAT = None                       # 线程死了才需要真的重建
+        if FLOAT is None:
+            _float_start()
+        elif not getattr(FLOAT, "visible", True):
+            FLOAT.show()
+        else:
+            FLOAT.poke()
+    elif FLOAT:
+        FLOAT.hide()
+
+
+if cfgm.get().get("float_on", True):
+    _float_start()
+
+
+def _float_watchdog():
+    """盯着悬浮窗:卡住了就自己重建 —— 不用玩家"关掉再打开"。
+
+    两种毛病都能救:
+      · 窗口线程没了(异常退出) → alive 为 False
+      · 线程还在转但画面不再更新(被什么阻塞过) → 心跳还在、成功绘制早就不动了
+    """
+    global FLOAT
+    while True:
+        time.sleep(5)
+        try:
+            if not cfgm.get().get("float_on", True) or not FLOAT:
+                continue
+            now = time.time()
+            dead = not FLOAT.alive
+            # 只有"显示着"的窗口才用绘制时间判卡死;隐藏时本来就不需要重画
+            stale = bool(getattr(FLOAT, "visible", True)) and \
+                now - float(getattr(FLOAT, "last_paint_at", 0) or 0) > 12
+            if dead or stale:
+                add_log("悬浮窗好像卡住了,正在自动重建", "warn")
+                try:
+                    FLOAT.hide_now()          # 先把卡死的旧窗口藏起来(跨线程安全)
+                except Exception:
+                    pass
+                try:
+                    FLOAT.stop()
+                except Exception:
+                    pass
+                FLOAT = None
+                if _float_start():
+                    add_log("悬浮窗已自动恢复", "info")
+        except Exception:
+            pass
+
+
+threading.Thread(target=_float_watchdog, daemon=True, name="floatdog").start()
+
+
+def _reader_watchdog():
+    """盯着读取线程:挂了就重启它;日志被重建(变小)也让它重新接上。"""
+    while True:
+        time.sleep(5)
+        try:
+            dead = (HOOK._thread is None) or (not HOOK._thread.is_alive())
+            if dead:
+                HOOK._running = False
+                time.sleep(0.2)
+                HOOK.start()
+                add_log("读取线程已重启", "warn")
+        except Exception:
+            pass
+
+
+threading.Thread(target=_reader_watchdog, daemon=True).start()
+
+
+def icon_for(path: str) -> str:
+    key = os.path.normcase(path)
+    if key in _ICON_CACHE:
+        return _ICON_CACHE[key]
+    url = ""
+    try:
+        from core import games as games_mod
+        url = games_mod.icon_data_url(path, size=96) or ""
+    except Exception as e:
+        print("提取图标失败:", e)
+    _ICON_CACHE[key] = url
+    return url
+
+
+def game_of(path: str) -> dict:
+    """按 exe 路径生成游戏信息(含位数/后端/LDC 包)。
+
+    注意:必须带 `exe` 键 —— HookManager.launch() / steam_appid() 都按它工作。
+    """
+    info = storyhook.detect_game(path)
+    try:
+        cfg = cfgm.get()
+        proxy = cfg.get("hook_proxy") or "auto"
+        for it in (cfg.get("games") or []):
+            if os.path.normcase(it.get("path") or "") == os.path.normcase(path):
+                proxy = it.get("proxy") or proxy
+    except Exception:
+        proxy = "auto"
+    return {
+        "path": path,
+        "exe": path,
+        "name": os.path.splitext(os.path.basename(path))[0],
+        "bits": info["bits"],
+        "backend": info["backend"],
+        "payload": info["payload"],
+        "dir": info["dir"],
+        "error": info.get("error", ""),
+        "steam_appid": storyhook.steam_appid(path),
+        "installed": HOOK.installed(info) if not info.get("error") else False,
+        "proxy": storyhook.pick_proxy(info, proxy),
+        "proxy_want": proxy,
+    }
+
+
+def hook_verdict(path: str) -> dict:
+    g = game_of(path)
+    if g["error"]:
+        return {"ok": False, "msg": g["error"]}
+    b = g["backend"]
+    if b == "非 Unity":
+        return {"ok": False, "msg": "不是 Unity 游戏 —— 本工具只支持 Unity"}
+    if b == "IL2CPP":
+        return {"ok": True, "msg": f"Unity · IL2CPP · {g['bits']} 位 —— 可以直接用(自研剧情插件)"}
+    return {"ok": True, "msg": f"Unity · Mono · {g['bits']} 位 —— 可以直接用(自带剧情插件)"}
+
+
+# ---------------------------------------------------------------- HTTP
+class Server(ThreadingHTTPServer):
+    allow_reuse_address = False        # 避免两个实例同时绑同一端口(会被别人接走请求)
+    daemon_threads = True
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "LingYue/1.0"
+
+    def log_message(self, *a):
+        pass
+
+    # ---- 工具 ----
+    def _json(self, obj, code=200):
+        body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _text(self, s, code=200, ctype="text/plain; charset=utf-8"):
+        """纯文本响应。★翻译接口必须用它★ ——
+        XUnity 的 CustomTranslate 拿到响应体不做任何解析,直接当译文用,
+        返回 JSON 的话游戏里会显示成 {"translation": "..."}。"""
+        body = (s or "").encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    # ---- 过滤规则:落盘 / AI 评审 ----
+    def _save_rules(self):
+        cfg = cfgm.get()
+        cfg["rules"] = storyhook.dump_rules()
+        cfgm.save()
+
+    def _ai_review_rules(self):
+        """让 AI 看一眼现有规则 + 最近读到的句子,专门产出「AI 添加的过滤词」。
+
+        和以前不一样的地方(玩家反馈"AI 加词会误杀"):
+          · AI 只能往 **ai_words(AI 添加的过滤词)** 这一组加,不再散落到各通用组里
+          · 每条建议都要过一遍**本地校验**:出现在最近读到的正常剧情里 → 直接否掉,
+            并说明原因(界面上能看到"为什么没采纳"),而不是闭眼加进去
+          · AI 只能删自己加过的词,删不到玩家的规则
+        """
+        if not ai_mod:
+            return {"ok": False, "msg": "AI 模块不可用"}
+        aicfg = (cfgm.get().get("ai") or {})
+        if not aicfg.get("api_key"):
+            return {"ok": False, "msg": "还没配置 AI 的 API Key(在「设置 → AI」里填好再试)"}
+        if hasattr(ai_mod, "available") and not ai_mod.available(aicfg):
+            return {"ok": False, "msg": "AI 配置不完整(接口地址 / 模型 / Key)"}
+
+        with LOCK:
+            sample_ok = [x for x in list(STATE["lines"] or [])][-120:]
+        recent_filtered = []
+        for x in list(LOG_RING)[-500:]:
+            if x.get("level") == "filter" and x.get("text"):
+                recent_filtered.append(x["text"])
+            elif x.get("level") == "junk" and x.get("text"):
+                recent_filtered.append(x["text"])
+        recent_filtered = recent_filtered[-60:]
+        ai_words = list(storyhook.RULES.get("ai_words") or [])
+        group_brief = {k: len(v) for k, v in storyhook.RULES.items()}
+
+        system = (
+            "你在帮一个 Unity 游戏朗读器维护**文本过滤词**。只输出 JSON,不要解释。\n"
+            '格式:{"add":["词1","词2"],"del":["要删掉的旧词"],"note":"一句话说明"}\n'
+            "硬约束:\n"
+            "· 只提议**界面/系统/菜单**里才会出现的词:存档、读取、设置、音量、分辨率、"
+            "章节列表、好感度、立绘、图鉴、快进、自动播放、按键、语言…\n"
+            "· **绝对不要**提议剧情里可能出现的普通词(名字、称呼、语气词、动词、地名、"
+            "『你』『我』这类代词),也不要提议单字\n"
+            "· 每个词 2~8 个字,必须是**完整词**,不要片段\n"
+            "· 只提议判据明确的词;拿不准就不要提\n"
+            "· del 只能删下面给出的『AI 已添加的词』,不许提别的"
+        )
+        text = (
+            "当前规则各组条数:" + json.dumps(group_brief, ensure_ascii=False) + "\n"
+            "AI 已添加的词(可建议删):" + json.dumps(ai_words, ensure_ascii=False) + "\n\n"
+            "最近**读到的正常剧情**(这些是好的,你的建议绝不能误杀它们):\n"
+            + "\n".join(sample_ok[:60])[:3000]
+            + "\n\n最近**被判为界面文字/噪音**(可以从里面找规律,但别照抄整句):\n"
+            + "\n".join(recent_filtered[:40])[:1500]
+            + "\n\n请给出建议。"
+        )
+        try:
+            txt = ai_mod._call(system, text, aicfg, 60) if hasattr(ai_mod, "_call") else ""
+        except Exception as e:
+            return {"ok": False, "msg": f"AI 调用失败:{e}"}
+        m = re.search(r"\{[\s\S]*\}", txt or "")
+        if not m:
+            return {"ok": False, "msg": "AI 没返回可解析的建议", "raw": (txt or "")[:400]}
+        try:
+            data = json.loads(m.group(0))
+        except Exception as e:
+            return {"ok": False, "msg": f"建议解析失败:{e}", "raw": (txt or "")[:400]}
+
+        # ---- 本地校验:AI 说什么不算,能不能加由这里说了算 ----
+        good, bad = [], []
+        for w in (data.get("add") or []):
+            w = str(w).strip().strip("「」\"'")
+            why = ""
+            if not (2 <= len(w) <= 8):
+                why = "长度不合适(只要 2~8 个字的完整词)"
+            elif w in ai_words or w in (storyhook.RULES.get("ui_keywords") or []):
+                why = "已经有了"
+            elif any(w in ln for ln in sample_ok):
+                hit = next((ln for ln in sample_ok if w in ln), "")
+                why = "会误杀正常剧情:" + hit[:24]
+            elif storyhook.as_speaker(w):
+                why = "像个角色名,不能当过滤词"
+            if why:
+                bad.append({"value": w, "why": why})
+            else:
+                good.append(w)
+        dels = [str(w).strip() for w in (data.get("del") or []) if str(w).strip() in ai_words]
+        note = str(data.get("note") or "")[:200]
+
+        # 直接落进 ai_words(独立区域),不用玩家一条条点
+        added = 0
+        for w in good:
+            if storyhook.add_rule("ai_words", w).get("ok"):
+                added += 1
+        for w in dels:
+            storyhook.del_rule("ai_words", w)
+        if added or dels:
+            self._save_rules()
+            add_log(f"AI 过滤词:新增 {added} 条、删除 {len(dels)} 条"
+                    + (f",另有 {len(bad)} 条被本地校验挡下" if bad else ""), "info")
+            set_status(f"AI 已更新过滤词(新增 {added} 条)")
+        return {"ok": True, "add": good, "del": dels, "note": note,
+                "rejected": bad, "added": added}
+
+    def _body(self) -> dict:
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+            return json.loads(self.rfile.read(n).decode("utf-8")) if n else {}
+        except Exception:
+            return {}
+
+    def _file(self, rel):
+        p = os.path.join(STATIC_DIR, rel)
+        if not os.path.isfile(p):
+            self._json({"error": "not found"}, 404)
+            return
+        ext = os.path.splitext(p)[1].lower()
+        ctype = {".html": "text/html; charset=utf-8", ".js": "application/javascript; charset=utf-8",
+                 ".css": "text/css; charset=utf-8", ".png": "image/png", ".svg": "image/svg+xml",
+                 ".ico": "image/x-icon", ".json": "application/json"}.get(ext, "application/octet-stream")
+        data = open(p, "rb").read()
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    # ---- GET ----
+    def do_GET(self):
+        p = urllib.parse.urlparse(self.path).path
+        try:
+            if p in ("/", "/index.html"):
+                return self._file("index.html")
+            if p.startswith("/static/"):
+                return self._file(p[len("/static/"):])
+            if p == "/api/state":
+                cfg = cfgm.get()
+                # 游戏库:给每条补上后端/位数/LDC 状态(卡片标签用)
+                glist = []
+                for g in (cfg.get("games") or []):
+                    path = g.get("path") or ""
+                    item = dict(g)
+                    if path and os.path.exists(path):
+                        info = storyhook.detect_game(path)
+                        item["icon"] = icon_for(path)
+                        item["info"] = {
+                            "backend": info["backend"], "bits": info["bits"],
+                            "installed": storyhook.HookManager.installed(HOOK, info),
+                            "steam_appid": storyhook.steam_appid(path),
+                        }
+                    glist.append(item)
+                return self._json({
+                    "app": APP_TITLE,
+                    "status": STATE["status"],
+                    "game": cfg.get("game", ""),
+                    "game_info": game_of(cfg["game"]) if cfg.get("game") else None,
+                    "games": glist,
+                    "count": STATE["count"],
+                    "latest": STATE["latest"],
+                    "lines": STATE["lines"][-200:],
+                    "filtered": HOOK.filter.filtered,
+                    "last_reason": HOOK.filter.last_reason,
+                    "speaker": HOOK.filter.speaker,
+                    "learned": STATE["learned"],
+                    "metrics": metrics(),
+                    "running": {"active": bool(RUNNING["active"]), "name": RUNNING["name"],
+                                "exe": RUNNING["exe"]},
+                    "settings": {
+                        "game": cfg.get("game", ""),
+                        "games": glist,
+                        "voice": cfg.get("voice"), "rate": cfg.get("rate"),
+                        "pitch": cfg.get("pitch"), "volume": cfg.get("volume"),
+                        "auto_say": cfg.get("auto_say"), "say_name": cfg.get("say_name"),
+                        "auto_next": cfg.get("auto_next"),
+                        "auto_next_delay": cfg.get("auto_next_delay"),
+                        "auto_next_point": cfg.get("auto_next_point") or "center",
+                        "auto_next_blank": cfg.get("auto_next_blank", True) is not False,
+                        "auto_next_blank_wait": cfg.get("auto_next_blank_wait", 2.5),
+                        "auto_next_silent": cfg.get("auto_next_silent", True) is not False,
+                        "auto_next_fallback": cfg.get("auto_next_fallback", True) is not False,
+                        "translate": dict(cfg.get("translate") or {}),
+                        "theme": cfg.get("theme"),
+                        "on_top": cfg.get("on_top"), "watch_game": cfg.get("watch_game"),
+                        "hook_proxy": cfg.get("hook_proxy") or "auto",
+                        "hook_profile": cfg.get("hook_profile") or "gameonly",
+                        "float_on": cfg.get("float_on", True) is not False,
+                        "float_corner": cfg.get("float_corner", 18),
+                        # ★角色配音总开关也要放进 settings★
+                        # 界面是从 S.settings.cast_on 读它的;以前只放在顶层,
+                        # 前端读到 undefined → "undefined !== false" 判成开 →
+                        # 关掉后切走再切回来又被打开了(玩家实测)。
+                        "cast_on": cfg.get("cast_on", True) is not False,
+                        "cast_default": cfg.get("cast_default") or "",
+                        "hook": cfg.get("hook"),
+                        "ai": dict(cfg.get("ai") or {}, **{"endpoint": (cfg.get("ai") or {}).get("base_url", "")}),
+                    },
+                    "voices": voice_items(),
+                    "voice_packs": voices.catalog() if hasattr(voices, "catalog") else [],
+                    "cast": cfg.get("cast") or {},
+                    "cast_on": cfg.get("cast_on", True) is not False,
+                    "cast_default": cfg.get("cast_default") or "",
+                    "speakers": sorted((STATE.get("speakers") or {}).items(),
+                                       key=lambda kv: -kv[1])[:60],
+                    "voice_label": tts.voice_label(cfg.get("voice", "")) if hasattr(tts, "voice_label") else cfg.get("voice"),
+                    "voice_note": tts.last_note() if hasattr(tts, "last_note") else "",
+                    "rules_profile": {
+                        "active": storyhook.ACTIVE_PROFILE,
+                        "name": (storyhook.PROFILE_BY_KEY.get(storyhook.ACTIVE_PROFILE) or {}).get("name", ""),
+                        "off": sorted(storyhook.PROFILE_OFF),
+                    },
+                    "translate": {
+                        "on": bool(_tr_cfg().get("on")),
+                        "say": bool(_tr_cfg().get("say")),
+                        "cached": TRANSLATOR.stats().get("cached", 0),
+                    },
+                })
+            if p == "/api/translate":
+                # ★这个接口是给游戏里的 XUnity.AutoTranslator 用的★
+                # 真实请求(格式串在 CustomTranslate.dll 里写死):
+                #   GET /api/translate?from=auto&to=zh-CN&text=<urlencoded 原文>
+                # 硬要求:① 返回体就是**纯文本译文本身**(不能是 JSON)
+                #        ② 任何情况下都别返回错误码 —— 插件连续失败 5 次会自己关掉,
+                #           玩家那边看到的就是"翻译突然没了"。翻不出来就原样返回原文。
+                q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                src = (q.get("text") or [""])[0]
+                if not src:
+                    return self._text("")
+                try:
+                    out = TRANSLATOR.get(src, cfgm.get().get("ai") or {})
+                except Exception:
+                    out = src
+                return self._text(out)
+
+            if p == "/api/translate/state":
+                cfg = cfgm.get()
+                g = game_of(cfg["game"]) if cfg.get("game") else None
+                tr = _tr_cfg()
+                st = TRANSLATOR.stats()
+                ai = cfg.get("ai") or {}
+                return self._json({
+                    "on": bool(tr.get("on")),
+                    "say": bool(tr.get("say")),
+                    "wait": float(tr.get("wait", 1.0) or 0),
+                    "prefetch": bool(tr.get("prefetch", True)),
+                    "installed": translate_installed(g) if g else False,
+                    "payload_ready": os.path.isdir(translate_payload_dir(g)) if g else False,
+                    "arch": _tr_arch(g) if g else "",
+                    "ai_ready": bool(ai.get("base_url") and ai.get("api_key")),
+                    "ai_model": ai.get("model") or "",
+                    "usage": (ai_mod.last_usage() if (ai_mod and hasattr(ai_mod, "last_usage")) else {}),
+                    "stats": st,
+                })
+
+            if p == "/api/ai/usage":
+                aicfg = cfgm.get().get("ai") or {}
+                tot = ai_mod.total_usage() if (ai_mod and hasattr(ai_mod, "total_usage")) else {}
+                last = ai_mod.last_usage() if (ai_mod and hasattr(ai_mod, "last_usage")) else {}
+                pin = float(aicfg.get("price_in", 2.0) or 0)
+                pout = float(aicfg.get("price_out", 8.0) or 0)
+                cost = (ai_mod.estimate_cost(tot, pin, pout)
+                        if (ai_mod and hasattr(ai_mod, "estimate_cost")) else 0.0)
+                return self._json({"ok": True, "total": tot, "last": last,
+                                   "price_in": pin, "price_out": pout,
+                                   "cost": round(cost, 4),
+                                   "ai_ready": bool(aicfg.get("base_url") and aicfg.get("api_key"))})
+
+            if p == "/api/ai/reset-usage":
+                if ai_mod and hasattr(ai_mod, "reset_usage"):
+                    ai_mod.reset_usage()
+                return self._json({"ok": True})
+
+            if p == "/api/rules":
+                return self._json({
+                    "groups": [{"key": k, "name": n, "desc": d, "items": storyhook.RULES.get(k, [])}
+                               for k, n, d in storyhook.RULE_GROUPS],
+                    "lists": [{"key": k, "name": n, "desc": d, "items": storyhook.RULES.get(k, [])}
+                              for k, n, d in storyhook.LIST_GROUPS],
+                    "profiles": storyhook.profile_dump(),
+                    "active_profile": storyhook.ACTIVE_PROFILE,
+                    "learned": {
+                        "labels": sorted(HOOK.filter.ignored_labels),
+                        "texts": sorted(HOOK.filter.ignored_texts)[-80:],
+                    },
+                    "extra_words": list(cfgm.get().get("hook", {}).get("extra_words") or []),
+                })
+
+            if p == "/api/logs":
+                cfg = cfgm.get()
+                g = game_of(cfg["game"]) if cfg.get("game") else None
+                logs = list(LOG_RING)[-400:]
+                counts = collections.Counter(x["level"] for x in logs)   # 当前这屏里各分类的条数
+                return self._json({
+                    "logs": logs,
+                    "log_counts": dict(counts),
+                    "log_total": dict(LOG_STAT),
+                    "menu_active": HOOK.filter.menu_active(),
+                    "status": STATE["status"],
+                    "game": {
+                        "name": (g or {}).get("name", ""),
+                        "path": (g or {}).get("path", ""),
+                        "dir": (g or {}).get("dir", ""),
+                        "backend": (g or {}).get("backend", ""),
+                        "bits": (g or {}).get("bits", ""),
+                        "installed": (g or {}).get("installed", False),
+                        "steam_appid": (g or {}).get("steam_appid", ""),
+                        "dlp": next((x.get("dlp") is not False for x in (cfg.get("games") or [])
+                                     if os.path.normcase(x.get("path") or "")
+                                     == os.path.normcase(cfg.get("game") or "")), False),
+                    },
+                    "running": {"active": bool(RUNNING["active"]), "name": RUNNING["name"]},
+                    "reader": {
+                        "log_path": HOOK.log_path,
+                        "log_exists": bool(HOOK.log_path) and os.path.exists(HOOK.log_path),
+                        "log_size": os.path.getsize(HOOK.log_path)
+                                    if (HOOK.log_path and os.path.exists(HOOK.log_path)) else 0,
+                        "log_pos": HOOK.log_pos,
+                        "started": HOOK.started,
+                        "paused": PAUSED["on"],
+                        "skipped": HOOK.skipped,
+                        "filtered": HOOK.filter.filtered,
+                        "count": STATE["count"],
+                        "speaker": HOOK.filter.speaker,
+                        "last_reason": HOOK.filter.last_reason,
+                    },
+                    "metrics": metrics(),
+                    "diag": diagnose(),
+                })
+
+            if p == "/api/debug":
+                return self._json({
+                    "log_path": HOOK.log_path,
+                    "log_exists": bool(HOOK.log_path) and os.path.exists(HOOK.log_path),
+                    "log_size": os.path.getsize(HOOK.log_path) if (HOOK.log_path and os.path.exists(HOOK.log_path)) else 0,
+                    "log_pos": HOOK.log_pos,
+                    "started": HOOK.started,
+                    "running_thread": bool(HOOK._thread and HOOK._thread.is_alive()),
+                    "skipped": HOOK.skipped,
+                    "paused": PAUSED["on"],
+                    "dlp_on": dlp_on(),
+                    "current_game": cfgm.get().get("game"),
+                    "filter_game_dir": (HOOK.game or {}).get("dir", ""),
+                })
+
+            if p == "/api/icon":
+                q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                path = (q.get("path") or [""])[0]
+                if not path or not os.path.exists(path):
+                    return self._json({"icon": ""})
+                return self._json({"icon": icon_for(path)})
+            if p == "/api/voices":
+                return self._json({"voices": voice_items(),
+                                   "packs": voices.catalog() if hasattr(voices, "catalog") else []})
+            if p == "/api/games/discover":
+                # 自动发现:Steam 库 + 桌面快捷方式,并提取每个游戏的真实图标
+                from core import games as games_mod
+                found = games_mod.discover(limit=60)
+                steam = list(found.get("steam") or []) if isinstance(found, dict) else []
+                desk = list(found.get("desktop") or []) if isinstance(found, dict) else (
+                    found if isinstance(found, list) else [])
+                # Steam 库:只要确定的 Unity 游戏
+                steam = unity_only(steam, strict=True)
+                # 桌面快捷方式:全都列出来(玩家自己看得见),标签里标后端
+                desk = unity_only(desk, strict=False)
+                for it in desk:
+                    it["source"] = it.get("source") or "desktop"
+                seen, merged = set(), []
+                for it in steam + desk:
+                    key = os.path.normcase(it.get("path") or "")
+                    if not key or key in seen:
+                        continue
+                    seen.add(key)
+                    merged.append(it)
+                return self._json({"games": merged})
+            return self._json({"error": "not found"}, 404)
+        except Exception as e:
+            traceback.print_exc()
+            add_log(f"接口 {p} 出错:{e}", "error")
+            return self._json({"error": str(e)}, 500)
+
+    # ---- POST ----
+    def do_POST(self):
+        p = urllib.parse.urlparse(self.path).path
+        d = self._body()
+        try:
+            if p == "/api/games/dlp":
+                # LDC 开关 = **纯读取开关**,不动游戏里任何文件:
+                #   开 → 读这个游戏显示的文字;关 → 就算游戏在跑也不读(不显示、不朗读、不自动点)
+                # 装/卸LDC只用「安装 LDC / 卸载 LDC」那两个按钮。
+                path = (d.get("path") or "").strip()
+                on = bool(d.get("on", True))
+                if not path or not os.path.exists(path):
+                    return self._json({"ok": False, "msg": "找不到这个游戏"})
+                g = game_of(path)
+                if on and not g.get("installed"):
+                    return self._json({"ok": False, "installed": False,
+                                       "msg": "还没安装 LDC —— 先点「安装 LDC」"})
+                cfg = cfgm.get()
+                for it in (cfg.get("games") or []):
+                    if os.path.normcase(it.get("path") or "") == os.path.normcase(path):
+                        it["dlp"] = on
+                cfgm.save()
+                if on:
+                    HOOK.set_game(g)          # 立刻接上它的日志
+                    HOOK.filter.forget_recent()
+                    _NEXT["last_line_at"] = 0.0
+                note = ("已开启「%s」的剧情读取" % g["name"]) if on else \
+                       ("已关闭「%s」的剧情读取(游戏照常玩,只是不再读字)" % g["name"])
+                add_log(note, "info")
+                set_status(note)
+                return self._json({"ok": True, "msg": note, "game_info": game_of(path)})
+
+            if p == "/api/games/auto":
+                r = auto_add_unity(force=True)
+                return self._json({"ok": True, **r, "games": cfgm.get().get("games", [])})
+
+            if p == "/api/games/remove":
+                path = (d.get("path") or "").strip()
+                cfg = cfgm.get()
+                cfg["games"] = [g for g in (cfg.get("games") or []) if g.get("path") != path]
+                if path:
+                    rm = [x for x in (cfg.get("removed") or []) if os.path.normcase(x) != os.path.normcase(path)]
+                    rm.append(path)
+                    cfg["removed"] = rm[-200:]
+                if os.path.normcase(cfg.get("game") or "") == os.path.normcase(path):
+                    cfg["game"] = ""
+                cfgm.save()
+                set_status("已从游戏库移除(以后重新扫描也不会自动加回来)")
+                return self._json({"ok": True, "games": cfg["games"]})
+
+            if p == "/api/game/set":
+                path = (d.get("path") or "").strip()
+                cfg = cfgm.get()
+                cur = cfg.get("game") or ""
+                # 游戏运行中不许切换(挂钩/日志都绑在当前游戏上)
+                if RUNNING["active"] and path and os.path.normcase(path) != os.path.normcase(cur):
+                    return self._json({"ok": False, "locked": True,
+                                       "msg": f"{RUNNING['name']} 正在运行,先点「终止游戏」关掉它才能切换"})
+                cfg["game"] = path
+                cfgm.save()
+                # 切换游戏 = 换了一款,把实时剧情清空
+                if os.path.normcase(path) != os.path.normcase(cur):
+                    with LOCK:
+                        STATE["lines"] = []
+                        STATE["latest"] = ""
+                        STATE["count"] = 0
+                        STATE["filtered"] = 0
+                    try:
+                        HOOK.filter.recent = []
+                        HOOK.filter.last_committed = ""
+                        HOOK.filter.pending = ""
+                        HOOK.filter.speaker = ""
+                    except Exception:
+                        pass
+                if path:
+                    HOOK.set_game(game_of(path))
+                    HOOK.on_status("已选好游戏,点「启动游戏」开始")
+                return self._json({"ok": True, "game_info": game_of(path) if path else None,
+                                   "verdict": hook_verdict(path) if path else None})
+
+            if p == "/api/game/pick":
+                path = _pick_exe()
+                return self._json({"ok": bool(path), "path": path})
+
+            if p == "/api/hook/check":
+                return self._json(hook_verdict(d.get("path") or cfgm.get().get("game") or ""))
+
+            if p == "/api/hook/install":
+                path = d.get("path") or cfgm.get().get("game") or ""
+                if not path:
+                    return self._json({"ok": False, "msg": "先选游戏"})
+                g = game_of(path)
+                HOOK.set_game(g)
+                # 注入代理:有的游戏(AnaDos)被 winhttp.dll 顶替后联网会坏,
+                # 手动指定 version / winmm 就好了。指定一次就记住。
+                want = str(d.get("proxy") or "").strip().lower()
+                if want in ("winhttp", "version", "winmm"):
+                    cfg = cfgm.get()
+                    for it in (cfg.get("games") or []):
+                        if os.path.normcase(it.get("path") or "") == os.path.normcase(path):
+                            it["proxy"] = want
+                    cfg["hook_proxy"] = want
+                    cfgm.save()
+                else:
+                    want = "auto"
+                    for it in (cfgm.get().get("games") or []):
+                        if os.path.normcase(it.get("path") or "") == os.path.normcase(path):
+                            want = it.get("proxy") or cfgm.get().get("hook_proxy") or "auto"
+                r = HOOK.install(g, want)
+                return self._json({**r, "proxy": pick_proxy(g, want), "game_info": game_of(path)})
+
+            if p == "/api/hook/uninstall":
+                g = game_of(d.get("path") or cfgm.get().get("game") or "")
+                if RUNNING["active"]:
+                    return self._json({"ok": False, "msg":
+                        RUNNING["name"] + " 正在运行,先点「终止游戏」关掉它,否则文件被占用无法卸载"})
+                r = HOOK.uninstall(g)
+                return self._json({**r, "game_info": game_of(g["path"])})
+
+            if p == "/api/game/kill":
+                name = RUNNING["name"] or os.path.basename(cfgm.get().get("game") or "")
+                if not name:
+                    return self._json({"ok": False, "msg": "没有正在运行的游戏"})
+                try:
+                    import subprocess
+                    subprocess.run(["taskkill", "/F", "/IM", name], capture_output=True,
+                                   timeout=10, creationflags=0x08000000)
+                    set_status(f"已结束 {name}")
+                    RUNNING["active"] = False
+                    RUNNING["exe"] = ""
+                    _WATCH["exe"] = ""
+                except Exception as e:
+                    return self._json({"ok": False, "msg": f"结束失败:{e}"})
+                return self._json({"ok": True, "msg": f"已结束 {name}"})
+
+            if p == "/api/hook/launch":
+                path = d.get("path") or cfgm.get().get("game") or ""
+                if not path:
+                    return self._json({"ok": False, "msg": "先选游戏"})
+                if not os.path.exists(path):
+                    return self._json({"ok": False, "msg": f"找不到游戏程序:{path}"})
+                g = game_of(path)
+                HOOK.set_game(g)
+                try:
+                    r = HOOK.launch(g)
+                    if r.get("ok"):
+                        watch_launch(path)          # 开始监控这个游戏,关了就退出
+                except Exception as e:
+                    traceback.print_exc()
+                    return self._json({"ok": False, "msg": f"启动失败:{e}"})
+                return self._json(r)
+
+            if p == "/api/cast":
+                return self._json({"cast": cfgm.get().get("cast") or {},
+                                   "speakers": sorted((STATE.get("speakers") or {}).items(),
+                                                      key=lambda kv: -kv[1])[:60],
+                                   "voices": voice_items()})
+
+            if p == "/api/cast/set":
+                name = (d.get("name") or "").strip()
+                if not name:
+                    return self._json({"ok": False, "msg": "先填角色名"})
+                cast = cfgm.get().setdefault("cast", {})
+                entry = cast.get(name) if isinstance(cast.get(name), dict) else {}
+                for k in ("voice", "rate", "pitch"):
+                    if k in d:
+                        v = d.get(k)
+                        if v is None or v == "":
+                            entry.pop(k, None)
+                        else:
+                            entry[k] = v
+                if d.get("voice"):
+                    entry["voice"] = str(d["voice"])
+                if entry.get("voice"):
+                    cast[name] = entry
+                else:
+                    # 没选声音、语速/声线也留空 = 取消这个角色的配音
+                    cast.pop(name, None)
+                cfgm.save()
+                set_status(f"已给「{name}」配音")
+                return self._json({"ok": True, "cast": cast})
+
+            if p == "/api/cast/default":
+                v = str(d.get("voice") or "").strip()
+                cfgm.get()["cast_default"] = v
+                cfgm.save()
+                set_status("默认配音:" + (tts.voice_label(v) if v else "跟随全局语音"))
+                return self._json({"ok": True, "cast_default": v})
+
+            if p == "/api/cast/del":
+                name = (d.get("name") or "").strip()
+                cast = cfgm.get().setdefault("cast", {})
+                cast.pop(name, None)
+                cfgm.save()
+                set_status(f"已取消「{name}」的配音")
+                return self._json({"ok": True, "cast": cast})
+
+            if p == "/api/cast/auto":
+                # 一键分配:给"出现过但还没配音"的角色轮流配上可用语音
+                items = voice_items()
+                pool = [v["kind"] + ":" + v["id"] for v in items if v["kind"] in ("sherpa", "sapi")]
+                pool += [v["id"] for v in items if v["kind"] == "edge"]
+                cast = cfgm.get().setdefault("cast", {})
+                used = {e.get("voice") for e in cast.values() if isinstance(e, dict)}
+                free = [v for v in pool if v not in used] or pool
+                added = 0
+                for nm, _n in sorted((STATE.get("speakers") or {}).items(), key=lambda kv: -kv[1]):
+                    if nm in cast or not free:
+                        continue
+                    cast[nm] = {"voice": free[added % len(free)]}
+                    added += 1
+                cfgm.save()
+                set_status(f"已给 {added} 个角色自动分配了音色")
+                return self._json({"ok": True, "added": added, "cast": cast})
+
+            if p == "/api/cast/try":
+                name = (d.get("name") or "").strip()
+                entry = (cfgm.get().get("cast") or {}).get(name) or {}
+                say = (d.get("text") or f"我是{name}。这是给你配的声音,听听看合不合适。").strip()
+                SPEAKER.say(f"【{name}】{say}" if name else say, True)
+                return self._json({"ok": True})
+
+            if p == "/api/cast/clear":
+                cfgm.get()["cast"] = {}
+                cfgm.save()
+                return self._json({"ok": True})
+
+            if p == "/api/story/clear":
+                with LOCK:
+                    STATE["lines"] = []
+                    STATE["count"] = 0
+                    STATE["latest"] = ""
+                return self._json({"ok": True})
+
+            if p == "/api/story/allow-replay":
+                # 回存档想再听一遍刚才那段:清掉去重记忆
+                HOOK.filter.forget_recent()
+                set_status("已放开去重 —— 刚才读过的剧情可以再读一遍了")
+                add_log("手动放行重读:已清空去重记忆", "info")
+                return self._json({"ok": True})
+
+            if p == "/api/story/mark":
+                label = HOOK.filter.mark_not_story(d.get("text") or "")
+                cfg = cfgm.get()
+                cfg["hook"]["ignored_labels"] = sorted(HOOK.filter.ignored_labels)
+                cfg["hook"]["ignored_texts"] = sorted(HOOK.filter.ignored_texts)
+                cfgm.save()
+                with LOCK:
+                    STATE["lines"] = [x for x in STATE["lines"]
+                                      if not HOOK.filter.is_ignored(x)]
+                return self._json({"ok": True, "label": label})
+
+            if p == "/api/story/clear-learned":
+                HOOK.filter.clear_learned()
+                cfg = cfgm.get()
+                cfg["hook"]["ignored_labels"] = []
+                cfg["hook"]["ignored_texts"] = []
+                cfgm.save()
+                return self._json({"ok": True})
+
+            if p == "/api/rules/save":
+                key = d.get("key") or ""
+                r = storyhook.set_rule_list(key, d.get("items") or [])
+                if r.get("ok"):
+                    self._save_rules()
+                return self._json(r)
+
+            if p == "/api/rules/add":
+                r = storyhook.add_rule(d.get("key") or "", d.get("value") or "")
+                if r.get("ok"):
+                    self._save_rules()
+                    set_status("已添加过滤规则:" + str(d.get("value"))[:30])
+                return self._json(r)
+
+            if p == "/api/rules/del":
+                r = storyhook.del_rule(d.get("key") or "", d.get("value") or "")
+                if r.get("ok"):
+                    self._save_rules()
+                    set_status("已删除过滤规则:" + str(d.get("value"))[:30])
+                return self._json(r)
+
+            if p == "/api/rules/clear":
+                for k in storyhook.RULES:
+                    storyhook.RULES[k] = []
+                HOOK.filter.ignored_labels.clear()
+                HOOK.filter.ignored_texts.clear()
+                HOOK.filter.label_stats.clear()
+                cfg = cfgm.get()
+                cfg.setdefault("hook", {})
+                cfg["hook"]["ignored_labels"] = []
+                cfg["hook"]["ignored_texts"] = []
+                cfg["hook"]["extra_words"] = []
+                self._save_rules()
+                set_status("过滤规则已全部清空(现在什么都不会被过滤,方便让 AI 重新学)")
+                return self._json({"ok": True})
+
+            if p == "/api/rules/reset":
+                storyhook.reset_rules()
+                self._save_rules()
+                set_status("过滤规则已恢复默认")
+                return self._json({"ok": True})
+
+            if p == "/api/rules/ai":
+                return self._json(self._ai_review_rules())
+
+            if p == "/api/rules/profile":
+                # 整个停用/启用某款游戏的专用规则
+                key = str(d.get("key") or "")
+                off = bool(d.get("off"))
+                if key not in storyhook.PROFILE_BY_KEY:
+                    return self._json({"ok": False, "msg": "没有这份专用规则"})
+                if off:
+                    storyhook.PROFILE_OFF.add(key)
+                else:
+                    storyhook.PROFILE_OFF.discard(key)
+                storyhook.rebuild_eff()
+                cfgm.get()["rules_profile_off"] = sorted(storyhook.PROFILE_OFF)
+                cfgm.save()
+                nm = storyhook.PROFILE_BY_KEY[key]["name"]
+                set_status(f"「{nm}」的专用过滤规则已{'停用' if off else '启用'}")
+                return self._json({"ok": True, "profiles": storyhook.profile_dump()})
+
+            if p == "/api/filter/verdict":
+                # 日志里点一条 → 弹窗选择「加入黑名单 / 加入白名单」
+                #   to:   black / white / none(从名单里移除)
+                #   mode: word(包含这个词就命中,默认) / exact(整句一模一样才命中)
+                text = (d.get("text") or "").strip()
+                word = (d.get("word") or "").strip()
+                to = (d.get("to") or "").strip()
+                mode = (d.get("mode") or "word").strip()
+                value = word or text
+                if not value:
+                    return self._json({"ok": False, "msg": "没有内容"})
+                if len(value) > 120:
+                    value = value[:120]
+                # 名单写法:普通文字 = 含这个词就命中;前面加 "=" = 整句一模一样才命中。
+                # 用 "=" 而不是控制字符,是因为这份名单在「过滤规则」页里玩家能直接看、直接改。
+                if mode == "exact":
+                    value = "=" + value
+                bare = value.lstrip("=")
+                if to in ("black", "white"):
+                    other_list = "whitelist" if to == "black" else "blacklist"
+                    key = "blacklist" if to == "black" else "whitelist"
+                    storyhook.del_rule(other_list, value)
+                    storyhook.del_rule(other_list, bare)
+                    storyhook.del_rule(key, value)
+                    storyhook.add_rule(key, value)
+                    if to == "white":
+                        # 白名单优先级最高:把之前"学到的忽略规则"和手动标记一起撤掉,
+                        # 否则这句话照样会被 ignored_texts 拦下来
+                        HOOK.filter.ignored_texts.discard(text)
+                        cfg = cfgm.get()
+                        cfg["hook"]["ignored_texts"] = sorted(HOOK.filter.ignored_texts)
+                        cfgm.save()
+                    self._save_rules()
+                    msg = ("已加入黑名单(以后不读)" if to == "black" else "已加入白名单(以后一定朗读)")
+                    add_log(f"{msg}:{bare[:40]}", "info")
+                    set_status(msg)
+                    return self._json({"ok": True, "msg": msg,
+                                       "blacklist": storyhook.RULES.get("blacklist", []),
+                                       "whitelist": storyhook.RULES.get("whitelist", [])})
+                # to == none:从两个名单里都移除
+                for k in ("blacklist", "whitelist"):
+                    storyhook.del_rule(k, value)
+                    storyhook.del_rule(k, bare)
+                    storyhook.del_rule(k, "=" + bare)
+                self._save_rules()
+                return self._json({"ok": True, "msg": "已从名单里移除"})
+
+            if p == "/api/translate/on":
+                cfg = cfgm.get()
+                g = game_of(cfg["game"]) if cfg.get("game") else None
+                on = bool(d.get("on"))
+                if on and not g:
+                    return self._json({"ok": False, "msg": "先选一个游戏"})
+                if g and not g.get("installed"):
+                    return self._json({"ok": False, "msg": "先给这个游戏装 LDC,再开翻译"})
+                r = translate_install(g, on) if g else {"ok": True, "msg": ""}
+                if not r.get("ok"):
+                    return self._json(r)
+                tr = _tr_cfg()
+                tr["on"] = on
+                cfgm.save()
+                apply_translate_cfg()
+                add_log(r.get("msg") or "", "info")
+                set_status(r.get("msg") or "")
+                return self._json({"ok": True, "msg": r.get("msg"), "on": on})
+
+            if p == "/api/translate/clear":
+                TRANSLATOR.clear()
+                set_status("译文缓存已清空")
+                return self._json({"ok": True})
+
+            if p == "/api/translate/test":
+                src = (d.get("text") or "").strip() or "こんにちは、いい天気ですね。"
+                out = TRANSLATOR.get(src, cfgm.get().get("ai") or {}, timeout=20)
+                ok = bool(out) and out != src
+                return self._json({"ok": ok, "src": src, "out": out,
+                                   "msg": "" if ok else (TRANSLATOR.last_error or "AI 没返回译文")})
+
+            if p == "/api/autoclick/test":
+                # 手动试一次「静默推进」:游戏停在对话上时点一下,能立刻看出插件点不点得动。
+                cfg = cfgm.get()
+                path = cfg.get("game") or ""
+                exe = os.path.basename(path)
+                if not exe:
+                    return self._json({"ok": False, "msg": "先选一个游戏"})
+                if not RUNNING["active"]:
+                    return self._json({"ok": False, "msg": "游戏没在运行"})
+                if not (HOOK.game or {}).get("dir"):
+                    return self._json({"ok": False, "msg": "读取端还没接上这个游戏"})
+                r = HOOK.silent_advance()
+                if not r.get("ok"):
+                    return self._json({"ok": False, "msg": r.get("msg") or "写入请求失败"})
+                time.sleep(0.35)
+                ack = _read_click_ack()
+                if ack is None:
+                    return self._json({"ok": False, "msg": "插件没有回应 —— 游戏里的 LDC 可能是旧版,"
+                                                          "重新点一次「安装 LDC」并重启游戏"})
+                ok = ack[0] == "ok"
+                msg = ("静默推进成功:" if ok else "静默推进失败:") + (ack[1] or "")
+                add_log(msg, "info" if ok else "warn")
+                set_status(msg)
+                return self._json({"ok": ok, "msg": msg})
+
+            if p == "/api/logs/clear":
+                LOG_RING.clear()
+                add_log("日志已清空", "info")
+                return self._json({"ok": True})
+
+            if p == "/api/settings":
+                if isinstance(d.get("ai"), dict):
+                    a = d["ai"]
+                    if a.get("endpoint") and not a.get("base_url"):
+                        a["base_url"] = a["endpoint"]
+                    a.pop("endpoint", None)
+                    # HTTP 头只能放 ASCII:把 Key/地址里的全角字符、空格、换行清掉,
+                    # 免得玩家粘贴时混进中文就报 'latin-1 codec' 这种看不懂的错
+                    for k in ("api_key", "base_url", "model"):
+                        if isinstance(a.get(k), str):
+                            a[k] = "".join(ch for ch in a[k] if 33 <= ord(ch) < 127)
+                cfgm.set_many(d)
+                if "on_top" in d:
+                    apply_topmost(bool(d.get("on_top")))
+                    set_status("窗口置顶:" + ("开" if d.get("on_top") else "关"))
+                cfg = cfgm.get()
+                h = cfg.get("hook", {})
+                HOOK.filter.min_cjk = int(h.get("min_cjk", 4))
+                HOOK.filter.strict = bool(h.get("strict", True))
+                HOOK.filter.extra_words = list(h.get("extra_words") or [])
+                if "float_on" in d or "float_corner" in d:
+                    _float_apply()                     # 悬浮窗开/关、圆角变化
+                if "hook_profile" in d or "hook_args" in d:
+                    HOOK.profile = cfg.get("hook_profile") or "gameonly"
+                    HOOK.profile_args = cfg.get("hook_args") or "any"
+                    set_status(f"LDC 档位已改为 {HOOK.profile} —— 重新点一次「安装 LDC」再重启游戏才生效")
+                    return self._json({"ok": True, "msg": "档位已保存,重新安装 LDC后生效"})
+                if "voice" in d:
+                    try:
+                        tts.select_voice(cfg.get("voice", ""))
+                    except Exception as e:
+                        return self._json({"ok": False, "msg": f"切换语音失败:{e}"})
+                if "pitch" in d and hasattr(tts, "set_pitch"):
+                    tts.set_pitch(cfg.get("pitch", 0))
+                if "translate" in d or "auto_next_silent" in d or "auto_next_fallback" in d:
+                    apply_translate_cfg()
+                return self._json({"ok": True})
+
+            if p == "/api/speak":
+                SPEAKER.say(d.get("text") or "", True)
+                return self._json({"ok": True})
+
+            if p == "/api/stop":
+                SPEAKER.stop()
+                return self._json({"ok": True})
+
+            if p == "/api/quit":
+                # 运行器(player.exe)关窗口时调这个:优雅退出
+                self._json({"ok": True})
+                SPEAKER.stop()
+                set_status("正在退出…")
+                threading.Timer(0.4, lambda: os._exit(0)).start()
+                return
+
+            if p == "/api/voices/reload":
+                try:
+                    # ★以前这里是 voices.rescan() —— 那个函数**根本不存在**,
+                    # 于是「重载引擎」一直是个空操作(下载完新包也不会重新加载模型)。
+                    if hasattr(voices, "clear_cache"):
+                        voices.clear_cache()
+                    if hasattr(voices, "rescan"):
+                        voices.rescan()
+                    tts.select_voice(cfgm.get().get("voice", ""))
+                    set_status("语音引擎已重载")
+                    return self._json({"ok": True})
+                except Exception as e:
+                    return self._json({"ok": False, "msg": str(e)})
+
+            if p == "/api/voices/download":
+                name = d.get("id") or d.get("name") or ""
+                if not name:
+                    return self._json({"ok": False, "msg": "缺少声音包 id"})
+
+                def work():
+                    try:
+                        fn = getattr(voices, "install_pack", None)
+                        if not fn:
+                            set_status("这个版本不支持下载声音包")
+                            return
+
+                        def on_status(msg):
+                            set_status(str(msg))
+
+                        def on_progress(got, total):
+                            try:
+                                pct = int(got * 100 / total) if total else 0
+                                set_status("正在下载「%s」 %d%%  (%.1f/%.1f MB)"
+                                           % (name, pct, got / 1048576, total / 1048576))
+                            except Exception:
+                                pass
+
+                        set_status(f"正在准备下载「{name}」…")
+                        r = fn(name, on_status=on_status, on_progress=on_progress)
+                        if isinstance(r, dict) and r.get("ok") is False:
+                            set_status("「%s」下载失败:%s" % (name, r.get("msg") or r.get("error") or ""))
+                        elif isinstance(r, dict) and r.get("already"):
+                            set_status(f"「{name}」已经装好了")
+                        else:
+                            set_status(f"「{name}」下载完成,可以在声音包管理里点「使用」")
+                    except Exception as e:
+                        traceback.print_exc()
+                        set_status(f"「{name}」下载出错:{e}")
+
+                threading.Thread(target=work, daemon=True).start()
+                return self._json({"ok": True, "msg": "已开始下载,进度显示在状态栏", "async": True})
+
+            if p == "/api/voices/remove":
+                name = d.get("id") or d.get("name") or ""
+                r = voices.remove_pack(name) if hasattr(voices, "remove_pack") else {"ok": False}
+                return self._json(r if isinstance(r, dict) else {"ok": True})
+
+            if p == "/api/ai/test":
+                if not ai_mod:
+                    return self._json({"ok": False, "msg": "AI 模块不可用"})
+                cfg_ai = cfgm.get().get("ai") or {}
+                if not cfg_ai.get("api_key"):
+                    return self._json({"ok": False, "msg": "还没填 API Key"})
+                try:
+                    if hasattr(ai_mod, "test"):
+                        r = ai_mod.test(cfg_ai)
+                        if isinstance(r, dict):
+                            return self._json({"ok": bool(r.get("ok", True)),
+                                               "msg": r.get("msg") or r.get("note") or "通"})
+                    txt = ai_mod._call("你是一个测试助手。", "只回复两个字:正常", cfg_ai, 30) \
+                        if hasattr(ai_mod, "_call") else ""
+                    return self._json({"ok": bool(txt), "msg": (txt or "")[:60]})
+                except Exception as e:
+                    return self._json({"ok": False, "msg": str(e)})
+
+            if p == "/api/ai/run":
+                if not ai_mod:
+                    return self._json({"ok": False, "msg": "AI 模块不可用"})
+                r = ai_mod.run_text(d) if hasattr(ai_mod, "run_text") else \
+                    ai_mod.auto_fix(d.get("text", ""), d.get("mode", "polish"))
+                return self._json(r if isinstance(r, dict) else {"ok": True, "text": r})
+
+            return self._json({"error": "not found"}, 404)
+        except Exception as e:
+            traceback.print_exc()
+            add_log(f"接口 {p} 出错:{e}", "error")
+            return self._json({"error": str(e)}, 500)
+
+
+def _pick_exe() -> str:
+    """弹系统文件选择框挑游戏 exe。"""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        buf = ctypes.create_unicode_buffer(1024)
+        class OFN(ctypes.Structure):
+            _fields_ = [("lStructSize", wintypes.DWORD), ("hwndOwner", wintypes.HWND),
+                        ("hInstance", wintypes.HINSTANCE), ("lpstrFilter", wintypes.LPCWSTR),
+                        ("lpstrCustomFilter", wintypes.LPWSTR), ("nMaxCustFilter", wintypes.DWORD),
+                        ("nFilterIndex", wintypes.DWORD), ("lpstrFile", wintypes.LPWSTR),
+                        ("nMaxFile", wintypes.DWORD), ("lpstrFileTitle", wintypes.LPWSTR),
+                        ("nMaxFileTitle", wintypes.DWORD), ("lpstrInitialDir", wintypes.LPCWSTR),
+                        ("lpstrTitle", wintypes.LPCWSTR), ("Flags", wintypes.DWORD),
+                        ("nFileOffset", wintypes.WORD), ("nFileExtension", wintypes.WORD),
+                        ("lpstrDefExt", wintypes.LPCWSTR), ("lCustData", wintypes.LPARAM),
+                        ("lpfnHook", ctypes.c_void_p), ("lpTemplateName", wintypes.LPCWSTR)]
+        ofn = OFN()
+        ofn.lStructSize = ctypes.sizeof(OFN)
+        ofn.lpstrFilter = "游戏程序\0*.exe\0所有文件\0*.*\0"
+        ofn.lpstrFile = ctypes.cast(buf, wintypes.LPWSTR)
+        ofn.nMaxFile = 1024
+        ofn.lpstrTitle = "选择游戏的启动程序"
+        ofn.Flags = 0x00080000 | 0x00001000 | 0x00000008 | 0x00000004   # NOCHANGEDIR|FILEMUSTEXIST|PATHMUSTEXIST|HIDEREADONLY
+        if ctypes.windll.comdlg32.GetOpenFileNameW(ctypes.byref(ofn)):
+            return buf.value
+    except Exception as e:
+        print("选文件失败:", e)
+    return ""
+
+
+def main():
+    cfg = cfgm.get()
+    try:
+        tts.select_voice(cfg.get("voice", ""))
+        if hasattr(tts, "set_pitch"):
+            tts.set_pitch(cfg.get("pitch", 0))
+    except Exception as e:
+        print("初始化语音失败:", e)
+        set_status(f"语音初始化失败:{e}")
+    if cfg.get("game"):
+        HOOK.set_game(game_of(cfg["game"]))
+    srv = None
+    for port in range(PORT, PORT + 20):
+        try:
+            srv = Server(("127.0.0.1", port), Handler)
+            PORT_USED = port
+            break
+        except OSError:
+            continue
+    if not srv:
+        print("端口都被占用,起不来")
+        return
+    try:
+        with open(os.path.join(ROOT, "server.port"), "w") as f:
+            f.write(str(PORT_USED))
+    except Exception:
+        pass
+    url = f"http://127.0.0.1:{PORT_USED}/"
+    print(f"{APP_TITLE} 已启动:{url}", flush=True)
+    if os.environ.get("LINGYUE_OPEN") == "1":
+        import webbrowser
+        threading.Timer(1.0, lambda: webbrowser.open(url)).start()
+    srv.serve_forever()
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,84 @@
+/* extra.css —— 后加的小东西(右键菜单 / 隐藏外观的滑条 / 启动错误提示)
+   单独一个文件是为了不和主题那几份 CSS 打架,顺序放在最后。 */
+
+/* ---------------- 右键菜单(拦掉浏览器默认菜单) ---------------- */
+.ctx-menu {
+  /* ★配色必须用「面板色 + 正文色」这一对★
+     以前写的是 --toast-bg + --text:在 MD3 主题里 --toast-bg 映射到 inverse-surface(浅色),
+     而 --text 是浅色的 on-surface → 浅字浅底,菜单文字直接看不见(玩家反馈)。
+     panel-2 / text 在所有主题里都是"深底浅字"或"浅底深字"的成对值,永远不会撞。 */
+  position: fixed; z-index: 9999; min-width: 184px; padding: 6px;
+  border-radius: var(--radius-sm, 10px); border: 1px solid var(--line-2);
+  background: var(--panel-2); color: var(--text);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .38);
+}
+.ctx-item {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  padding: 7px 10px; border: 0; border-radius: 7px; cursor: pointer;
+  background: transparent; color: var(--text); font: inherit; font-size: 12.5px;
+  text-align: left; white-space: nowrap;
+}
+.ctx-item:hover { background: var(--soft-2); }
+.ctx-item.danger { color: var(--danger); }
+.ctx-item .ci-icon { width: 15px; flex: none; text-align: center; color: var(--muted); }
+.ctx-item.danger .ci-icon { color: var(--danger); }
+.ctx-sep { display: block; height: 1px; margin: 5px 8px; background: var(--line); }
+
+/* ---------------- 滑条:全部只保留拖动,不要任何可视外观 ---------------- */
+/* 玩家要求「删掉所有的滑动条显示」。★必须用 html[data-theme] 前缀提高优先级★ ——
+   主题文件里有 `html[data-theme="md3"] input[type=range]` 这类规则,普通 `input[type=range]`
+   会被它盖掉(玩家实测:改了但界面上还是能看到轨道和圆点)。 */
+html[data-theme] input[type="range"],
+html[data-theme] .field input[type="range"],
+html[data-theme] input[type="range"].bare {
+  -webkit-appearance: none !important; appearance: none !important;
+  width: 100%; height: 26px !important; background: transparent !important;
+  cursor: ew-resize; margin: 2px 0 0 !important; border: 0 !important;
+  outline: none; box-shadow: none !important;
+}
+html[data-theme] input[type="range"]::-webkit-slider-runnable-track {
+  height: 26px !important; background: transparent !important; border: 0 !important;
+  box-shadow: none !important;
+}
+html[data-theme] input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none !important; appearance: none !important;
+  width: 26px !important; height: 26px !important; border-radius: 50% !important;
+  background: transparent !important; border: 0 !important; box-shadow: none !important;
+}
+html[data-theme] input[type="range"]::-moz-range-track {
+  height: 26px !important; background: transparent !important; border: 0 !important;
+}
+html[data-theme] input[type="range"]::-moz-range-progress { background: transparent !important; }
+html[data-theme] input[type="range"]::-moz-range-thumb {
+  width: 26px !important; height: 26px !important; background: transparent !important; border: 0 !important;
+}
+html[data-theme] input[type="range"]:hover { background: var(--soft) !important; border-radius: 8px; }
+html[data-theme] input[type="range"]:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent-soft) !important; border-radius: 8px;
+}
+
+/* ---------------- 启动失败提示条(模块加载不出来时不再白屏) ---------------- */
+.boot-err {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 99999;
+  margin: 0; padding: 10px 14px; max-height: 34vh; overflow: auto;
+  background: #b00020; color: #fff; font: 12px/1.6 Consolas, monospace;
+  white-space: pre-wrap;
+}
+
+
+/* ---------------- 滚动条:全部隐藏(保留滚动功能) ---------------- */
+/* 玩家原话「删掉所有的滑动条显示,保留滑动的功能」指的是**滚动条**
+   (截图里那条灰色竖条)。整条隐藏:滚轮/触控板/键盘照常滚,只是不再画出那条杠。 */
+html[data-theme] * { scrollbar-width: none; -ms-overflow-style: none; }
+html[data-theme] *::-webkit-scrollbar { width: 0 !important; height: 0 !important; }
+html[data-theme] *::-webkit-scrollbar-thumb { background: transparent !important; }
+html[data-theme] *::-webkit-scrollbar-track { background: transparent !important; }
+
+/* ---------------- 翻译流程图:箭头要和药丸居中对齐 ---------------- */
+.tr-flow { align-items: center; }
+.tr-flow i {
+  display: inline-flex; align-items: center; justify-content: center;
+  align-self: center; line-height: 1; height: 22px; font-size: 15px;
+  color: var(--muted-2);
+}
+.tr-step { display: inline-flex; align-items: center; height: 30px; }

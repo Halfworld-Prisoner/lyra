@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>卸载 Lyra</title>
+<style>
+  :root{
+    --bg:#f4f5fa; --card:#ffffff; --txt:#1a1f2b; --muted:#687084; --line:#e3e6ef;
+    --acc:#7c5cff; --acc2:#4aa8ff; --danger:#d6485c; --soft:#f7f8fc; --rs:10px; --r:14px;
+    font-family:"Microsoft YaHei UI","Microsoft YaHei",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
+    font-size:13px;line-height:1.7;-webkit-user-select:none;user-select:none}
+  .wrap{display:flex;flex-direction:column;height:100%;padding:14px 16px 12px;overflow:hidden}
+  .head{display:flex;align-items:center;gap:12px}
+  .logo{width:52px;height:52px;border-radius:14px;background:#fff;border:1px solid var(--line);
+    display:grid;place-items:center;overflow:hidden;flex:none}
+  .logo img{width:100%;height:100%;object-fit:cover}
+  .who b{font-size:21px;font-weight:600}
+  .who div{font-size:12px;color:var(--muted)}
+  hr{border:0;border-top:1px solid var(--line);margin:14px 0 12px}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .box{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:11px 13px}
+  .box h3{margin:0 0 6px;font-size:12.5px;display:flex;align-items:center;gap:7px}
+  .box h3 i{width:8px;height:8px;border-radius:50%;display:inline-block}
+  .keep h3 i{background:#2f9e63}
+  .drop h3 i{background:var(--danger)}
+  .box ul{margin:0;padding-left:16px;color:var(--muted);font-size:12px}
+  .box li{margin:3px 0}
+  .box b{color:var(--txt);font-weight:600}
+  .status{margin-top:auto;font-size:12.5px;color:var(--muted);min-height:20px}
+  .bar{height:6px;border-radius:99px;background:#e4e7f0;overflow:hidden;margin:6px 0 12px}
+  .bar i{display:block;height:100%;width:0;border-radius:99px;
+    background:linear-gradient(90deg,var(--acc),var(--acc2));transition:width .5s ease}
+  .foot{display:flex;justify-content:flex-end;gap:10px}
+  button{font:inherit;cursor:pointer;border-radius:999px;border:1px solid transparent;transition:.15s}
+  .ghost{height:36px;padding:0 20px;background:var(--card);border-color:var(--line);color:var(--txt)}
+  .ghost:hover{border-color:var(--acc);color:var(--acc)}
+  .danger{height:38px;padding:0 26px;color:#fff;font-weight:600;
+    background:linear-gradient(135deg,#e2566a,var(--danger))}
+  .danger:hover{filter:brightness(1.06)}
+  .danger:disabled{background:#c9ccd8;cursor:default;filter:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div class="logo"><img id="logo" alt=""></div>
+    <div class="who">
+      <b>卸载 Lyra</b>
+      <div>只会删掉这个程序本身,你的游戏和数据不受影响</div>
+    </div>
+  </div>
+  <hr>
+
+  <div class="cols">
+    <div class="box drop">
+      <h3><i></i>会删掉</h3>
+      <ul>
+        <li>程序本体:<b id="dir">…</b></li>
+        <li>桌面与开始菜单里的快捷方式</li>
+        <li>这里的设置:声音、角色配音、过滤规则、AI 配置</li>
+      </ul>
+    </div>
+    <div class="box keep">
+      <h3><i></i>不会动</h3>
+      <ul>
+        <li>你的<b>游戏本体与存档</b>,以及游戏目录里的任何文件</li>
+        <li>已经装进游戏里的 <b>LDC 插件</b>(想清掉请在 Lyra 里对每个游戏点「卸载 LDC」)</li>
+        <li>你下载过的语音包(<b>%LOCALAPPDATA%\Lyra</b> 会保留)</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="status" id="status">点「确认卸载」开始;卸载器会先复制自己到临时目录,再清理整个安装目录。</div>
+  <div class="bar"><i id="bar"></i></div>
+
+  <div class="foot">
+    <button class="ghost" id="cancel">取消</button>
+    <button class="danger" id="go">确认卸载</button>
+  </div>
+</div>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const send = (o) => { try { window.chrome.webview.postMessage(JSON.stringify(o)); } catch (e) {} };
+  let done = false;
+
+  /* 原生 → 网页 */
+  window.__lyra = {
+    src(u) { const i = document.getElementById('logo'); if (i && u) i.src = u; },
+    dir(p) { $('dir').textContent = p || '…'; },
+    status(t) { $('status').textContent = t || ''; },
+    progress(n) { $('bar').style.width = Math.max(0, Math.min(100, n)) + '%'; },
+    /* 卸载结果直接显示在**同一个窗口**里,不再另弹窗口(玩家反馈过) */
+    done(ok, kept) {
+      done = true;
+      $('go').disabled = true;
+      $('go').textContent = '已卸载';
+      $('bar').style.width = '100%';
+      $('status').textContent = ok
+        ? '卸载完成,窗口马上关闭。你的游戏和存档都还在。'
+        : ('卸载没完全成功:多半有文件被占用(' + (kept || '') + '),关掉 Lyra 或重启后再运行一次本卸载器即可。');
+      setTimeout(() => send({ cmd: 'close' }), ok ? 1200 : 4000);
+    },
+    ready() { send({ cmd: 'ready' }); },
+  };
+
+  $('cancel').onclick = () => send({ cmd: 'close' });
+  $('go').onclick = () => {
+    if (done) return;
+    $('go').disabled = true;
+    $('go').textContent = '正在卸载…';
+    $('bar').style.width = '35%';
+    $('status').textContent = '正在卸载…';
+    send({ cmd: 'uninstall' });
+  };
+</script>
+</body>
+</html>

@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lyra · Unity 游戏朗读器</title>
+<!-- 样式拆成 6 份,按"改哪个看哪个"来分(顺序不能乱:令牌 → 主题 → 骨架 → 组件 → 各页 → 补充) -->
+<link rel="stylesheet" href="/static/css/tokens.css">
+<link rel="stylesheet" href="/static/css/themes.css">
+<link rel="stylesheet" href="/static/css/layout.css">
+<link rel="stylesheet" href="/static/css/components.css">
+<link rel="stylesheet" href="/static/css/views.css">
+<link rel="stylesheet" href="/static/css/extra.css">
+</head>
+<body>
+
+<div class="app">
+
+<!-- ==================== 左侧栏 ==================== -->
+<aside class="sidebar">
+  <div class="brand vt-brand">
+    <div class="logo">
+      <svg viewBox="0 0 32 32" width="21" height="21" aria-hidden="true">
+        <rect x="3.2" y="12.2" width="3.2" height="7.6" rx="1.6" fill="#fff" opacity=".78"/>
+        <rect x="8.8" y="9.4" width="3.2" height="13.2" rx="1.6" fill="#fff" opacity=".92"/>
+        <rect x="14.4" y="6.4" width="3.2" height="19.2" rx="1.6" fill="#fff"/>
+        <rect x="20" y="10" width="3.2" height="12" rx="1.6" fill="#fff" opacity=".9"/>
+        <rect x="25.6" y="12.6" width="3.2" height="6.8" rx="1.6" fill="#fff" opacity=".78"/>
+      </svg>
+    </div>
+    <div class="brand-text">
+      <b>Lyra</b>
+      <span>Unity 游戏朗读器</span>
+    </div>
+  </div>
+
+  <nav class="nav" id="nav">
+    <i class="nav-pill" id="navPill"></i>
+    <button class="nav-item active" data-view="library"><i>▦</i><span>游戏库</span></button>
+    <button class="nav-item" data-view="realtime"><i>◉</i><span>实时剧情</span></button>
+    <button class="nav-item" data-view="cast"><i>☺</i><span>角色配音</span></button>
+    <button class="nav-item" data-view="translate"><i>文</i><span>文本翻译</span></button>
+    <button class="nav-item" data-view="rules"><i>⛃</i><span>过滤规则</span></button>
+    <button class="nav-item" data-view="logs"><i>▤</i><span>日志</span></button>
+    <button class="nav-item" data-view="settings"><i>⚙</i><span>设置</span></button>
+  </nav>
+
+  <div class="side-foot">
+    <div class="theme-box">
+      <div class="theme-top"><span>界面主题</span><b id="themeNow">暗夜</b></div>
+      <div class="theme-pick" id="themePick">
+        <button data-theme="dark" title="暗夜:默认的深色界面">暗夜</button>
+        <button data-theme="md3" title="Material 3:谷歌质感设计,大圆角 + 色调面板">MD3</button>
+        <button data-theme="light" title="明亮:白天/亮环境用">明亮</button>
+        <button data-theme="sepia" title="护眼:低对比暖色,长时间阅读更舒服">护眼</button>
+      </div>
+    </div>
+    <div class="gauge">
+      <div class="gauge-top"><span>内存占用</span><b id="sideMem">—</b></div>
+      <div class="gauge-bar"><i id="sideMemBar" style="width:0%"></i></div>
+    </div>
+    <div class="side-note">全部在本机运行 · 不联网也能读</div>
+  </div>
+</aside>
+
+<!-- ==================== 主区域 ==================== -->
+<main class="main">
+  <header class="topbar">
+    <h1 id="viewTitle" class="vt-title">游戏库</h1>
+    <div class="top-mid">
+      <div class="search"><i>⌕</i><input id="search" placeholder="搜索游戏" spellcheck="false"></div>
+    </div>
+    <div class="top-actions">
+      <span class="chip" id="status"><i class="led"></i>就绪</span>
+      <button class="icon-btn" id="openBrowser" title="在浏览器里打开(网页版)">🌐</button>
+      <button class="icon-btn danger" id="quit" title="退出程序">⏻</button>
+    </div>
+  </header>
+
+  <div class="content">
+
+    <!-- ---------------- 游戏库 ---------------- -->
+    <section class="view active" id="view-library">
+      <div class="launch-bar">
+        <div class="lb-icon vt-game" id="lbIcon"><span>?</span></div>
+        <div class="lb-left">
+          <label class="lb-label">运行游戏</label>
+          <select id="gameSelect" class="select lg"></select>
+        </div>
+        <button class="btn primary" id="launchGame"><i>▶</i>启动游戏</button>
+        <button class="btn ghost" id="installHook">安装 LDC</button>
+        <span class="grow"></span>
+        <button class="btn ghost sm" id="checkHook">检查能否安装 LDC</button>
+        <span class="muted sm" id="runHint" style="margin-left:6px"></span>
+      </div>
+
+      <div class="section-head">
+        <h2>我的游戏 <span class="muted sm" id="gamesCount"></span></h2>
+        <div class="head-actions">
+          <button class="btn ghost sm" id="rescanGames"><i>⟳</i>重新扫描</button>
+          <button class="btn primary sm" id="addGameBtn"><i>＋</i>添加游戏</button>
+        </div>
+      </div>
+      <div class="game-grid" id="games"></div>
+      <div class="empty-state hidden" id="gamesEmpty">
+        <div class="es-icon">▦</div>
+        <div class="es-title">还没有添加游戏</div>
+        <div class="es-sub">点「＋ 添加游戏」:自动列出 Steam 已安装的游戏和桌面快捷方式,也可以自己选路径。</div>
+      </div>
+    </section>
+
+    <!-- ---------------- 实时剧情(照旧版「实时识别」) ---------------- -->
+    <section class="view" id="view-realtime">
+      <div class="panel">
+        <div class="panel-title">实时监控 <span class="muted sm">最近 60 秒</span></div>
+        <div class="metric-row">
+          <div class="metric-card">
+            <span class="k">读取速度</span><b id="mRate">—</b><span class="u">字/秒</span>
+            <canvas class="spark" id="sparkRate"></canvas>
+          </div>
+          <div class="metric-card">
+            <span class="k">内存占用</span><b id="mMem">—</b><span class="u">MB</span>
+            <canvas class="spark" id="sparkMem"></canvas>
+          </div>
+        </div>
+        <div class="mini-stats">
+          <div><span>读取句数</span><b id="mCount">0</b></div>
+          <div><span>平均速度</span><b id="mAvg">—</b></div>
+          <div><span>LDC</span><b id="mDlp">—</b></div>
+          <div><span>语音</span><b id="mVoice">—</b></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">
+          读取到的剧情
+          <span class="muted sm" id="filterStat"></span>
+          <span class="grow"></span>
+          <button class="btn ghost sm" id="allowReplay" title="回存档想再听一遍刚才那段时点这里:会清掉去重记忆,让同一段剧情能再读一遍">允许重读</button>
+          <button class="btn ghost sm" id="clearStory">清空</button>
+        </div>
+        <ol id="texts" class="texts"></ol>
+      </div>
+    </section>
+
+    <!-- ---------------- 角色配音 ---------------- -->
+    <section class="view" id="view-cast">
+      <div class="panel">
+        <div class="panel-title">角色配音 <span class="muted sm">读到某个角色的台词时,自动换成你给他配的声音</span>
+          <span class="grow"></span>
+          <button class="btn ghost sm" id="openPacks"><i>⤓</i>下载语音包</button>
+          <span class="muted sm">总开关</span>
+          <label class="switch" title="总开关:关掉就全部用设置页里选的全局声音"><input id="castOn" type="checkbox"><i></i></label>
+        </div>
+        <p class="muted sm about-text" style="margin:0 0 12px">
+          读取剧情时会<b>连同角色名一起识别</b>(例如 <b>【伊莲】</b>)。这里给角色配好声音,以后念到他就用这个音色;
+          没配过的角色、以及<b>没有角色名的旁白</b>,都用下面的「默认配音」。
+          <br>全局声音、语速、音量在<b>设置</b>页;这一页只管"谁用哪个声音"。
+        </p>
+        <div class="cast-row" style="border-color:var(--accent)">
+          <div class="cast-name" title="没名字的台词 / 还没配音的角色 都用它">默认配音</div>
+          <select id="castDefault" class="input cast-voice"></select>
+          <div class="cast-acts">
+            <button class="btn ghost sm" id="castTryDefault">试听</button>
+          </div>
+        </div>
+        <div id="castList" class="cast-list" style="margin-top:8px"></div>
+        <div class="muted sm" id="castEmpty" style="padding:10px 2px">还没有配过角色 —— 在下面添加,或从"剧情里出现过的角色"里点一下。</div>
+      </div>
+
+      <div class="split">
+        <div class="col">
+          <div class="panel">
+            <div class="panel-title">添加 / 修改角色</div>
+            <div class="row" style="gap:8px; flex-wrap:wrap">
+              <input id="castName" class="input" style="width:150px" placeholder="角色名(要和剧情里一致)" spellcheck="false">
+              <select id="castVoice" class="input grow" style="min-width:180px"></select>
+              <button class="btn primary" id="castAdd">保存</button>
+            </div>
+            <div class="row" style="gap:14px; margin-top:10px; flex-wrap:wrap">
+              <label class="muted sm">语速 <input id="castRate" class="input num" type="number" min="0.5" max="2" step="0.05" placeholder="跟随全局" style="width:96px"></label>
+              <label class="muted sm">声线 <input id="castPitch" class="input num" type="number" min="-12" max="12" step="1" placeholder="跟随全局" style="width:96px"></label>
+              <button class="btn ghost sm" id="castTryNew">试听</button>
+              <span class="muted sm">留空 = 用设置页的全局设置</span>
+            </div>
+          </div>
+        </div>
+        <div class="col">
+          <div class="panel">
+            <div class="panel-title">剧情里出现过的角色 <span class="muted sm">点一下就加进来</span>
+              <span class="grow"></span>
+              <button class="btn ghost sm" id="castAuto">一键自动分配</button>
+            </div>
+            <div id="castSeen" class="cast-chips"></div>
+            <div class="muted sm" style="padding:8px 2px">读剧情时会自动收集角色名,念到的角色越多这里越全。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------------- 文本翻译(实时汉化:把游戏里的原文换成简体中文) ---------------- -->
+    <section class="view" id="view-translate">
+      <div class="panel">
+        <div class="panel-title">文本翻译 <span class="muted sm">把游戏里显示的原文实时换成简体中文</span>
+          <span class="grow"></span>
+          <label class="switch" title="打开后会把翻译插件装进游戏目录,重启游戏生效"><input id="trOn" type="checkbox"><i></i></label>
+        </div>
+        <p class="muted sm about-text" style="margin:0 0 12px">
+          原理:游戏要显示一句原文时,LDC 挂上的翻译插件先把它交给<b>本机 AI 翻译</b>,
+          拿到简体中文后<b>写回游戏文本框</b> —— 游戏里看到的就是中文。译文会缓存,
+          同一句只翻一次,离线也能用上次的结果。
+        </p>
+        <div class="tr-flow">
+          <span class="tr-step">游戏原文</span><i>→</i>
+          <span class="tr-step">翻译插件</span><i>→</i>
+          <span class="tr-step on">本机 AI(简体中文)</span><i>→</i>
+          <span class="tr-step">写回游戏画面</span>
+        </div>
+        <div class="stat-row" id="trStats"></div>
+      </div>
+
+      <div class="split">
+        <div class="col">
+          <div class="panel">
+            <div class="panel-title">翻译设置</div>
+            <div class="ai-row">
+              <div class="ai-row-text">
+                <b>译文也走朗读</b>
+                <span class="muted sm">打开:念中文译文;关闭:只把画面改成中文,朗读仍按原文(自己选)</span>
+              </div>
+              <label class="switch"><input id="trSay" type="checkbox"><i></i></label>
+            </div>
+            <div class="ai-row">
+              <div class="ai-row-text">
+                <b>提前翻译</b>
+                <span class="muted sm">读到原文就顺手翻好,下一句更快出中文</span>
+              </div>
+              <label class="switch"><input id="trPrefetch" type="checkbox"><i></i></label>
+            </div>
+            <div class="ai-row" style="border-bottom:0">
+              <div class="ai-row-text">
+                <b>等译文的时间</b>
+                <span class="muted sm">朗读译文时,等这么久让中文先写回游戏(默认 1 秒)</span>
+              </div>
+              <div class="num-wrap"><input id="trWait" class="input num" type="number" min="0" max="4" step="0.5"></div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-title">试翻一句 <span class="muted sm">不装插件也能先看效果</span></div>
+            <div class="row" style="gap:8px">
+              <input id="trTestIn" class="input grow" placeholder="粘贴一句日文/英文原文" spellcheck="false">
+              <button class="btn primary sm" id="trTest">翻译</button>
+            </div>
+            <div class="tr-out" id="trTestOut">—</div>
+          </div>
+        </div>
+
+        <div class="col">
+          <div class="panel">
+            <div class="panel-title">当前状态</div>
+            <div id="trState" class="log-status"></div>
+            <div class="row" style="gap:8px; margin-top:10px">
+              <button class="btn ghost sm" id="trClear">清空译文缓存</button>
+              <button class="btn ghost sm" id="trReinstall">重新安装翻译插件</button>
+            </div>
+            <div class="hint-box" id="trHint"></div>
+            <p class="muted sm" style="margin:8px 0 0">
+              AI 接口在<b>设置 → AI 助手</b>里配(和过滤词评审共用一套)。
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------------- 过滤规则 ---------------- -->
+    <section class="view" id="view-rules">
+      <div class="panel">
+        <div class="panel-title">过滤规则 <span class="muted sm">改了立刻生效,并会记到 config.json</span>
+          <span class="grow"></span>
+          <button class="btn ghost sm" id="rulesAi"><i>✨</i>AI 评审</button>
+          <button class="btn ghost sm" id="rulesClearAll">清空全部</button>
+          <button class="btn ghost sm" id="rulesReset">恢复默认</button>
+        </div>
+        <div class="rules-wrap">
+          <div class="rules-nav" id="rulesNav"></div>
+          <div class="rules-main">
+            <div class="rules-head">
+              <b id="rulesTitle">—</b>
+              <span class="muted sm" id="rulesDesc"></span>
+              <span class="grow"></span>
+              <span id="rulesTag"></span>
+            </div>
+            <div class="row" style="gap:8px; margin:8px 0">
+              <input id="rulesNew" class="input grow" placeholder="输入要新增的词,回车或点「添加」" spellcheck="false">
+              <button class="btn primary sm" id="rulesAdd">添加</button>
+            </div>
+            <div class="rules-list" id="rulesList"></div>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">AI 评审 <span class="muted sm">用你「设置 → AI 助手」里配好的接口;只在你点的时候才联网</span>
+          <span class="grow"></span>
+          <button class="btn ghost sm" id="rulesAi"><i>✨</i>AI 评审一下</button>
+        </div>
+        <p class="muted sm" style="margin:0">
+          AI 加的词只会进「AI 添加的过滤词」那一栏,不会混进通用规则;每条都会先过一遍本地校验,
+          会误杀正常剧情的词会被挡下来并写明原因。
+        </p>
+      </div>
+
+      <div class="panel" id="rulesAiBox" style="display:none">
+        <div class="panel-title">AI 建议 <span class="muted sm">已自动应用到「AI 添加的过滤词」</span></div>
+        <div id="rulesAiOut"></div>
+      </div>
+    </section>
+
+    <!-- ---------------- 日志 ---------------- -->
+    <section class="view" id="view-logs">
+      <div class="diag-bar" id="diagBar">正在判断…</div>
+      <div class="panel">
+        <div class="panel-title">当前游戏运行 <span class="muted sm">实时</span>
+          <span class="grow"></span>
+          <button class="btn ghost sm" id="logsCopy"><i>⧉</i>复制全部</button>
+          <button class="btn ghost sm" id="logsClear">清空</button>
+        </div>
+        <div class="log-status" id="logStatus"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">日志 <span class="muted sm" id="logHint">最近 400 条</span>
+          <span class="grow"></span>
+          <div class="seg-toggle" id="logTabs">
+            <button data-lv="all" class="on">全部</button>
+            <button data-lv="game">剧情</button>
+            <button data-lv="filter">已过滤</button>
+            <button data-lv="junk">跳过噪音</button>
+            <button data-lv="system">系统</button>
+          </div>
+        </div>
+        <div class="log-tip">
+          <b>点任意一条日志</b>就会弹出选择:加入<b>白名单</b>(这句以后一定朗读)或
+          <b>黑名单</b>(这句以后彻底不读)。<span class="muted sm">「剧情」和「已过滤」两类最适合这么收拾。</span>
+        </div>
+        <div class="log-list" id="logList"></div>
+      </div>
+    </section>
+
+    <!-- ---------------- 设置 ---------------- -->
+    <section class="view" id="view-settings">
+      <div class="split">
+
+        <!-- ============ 左栏:日常要调的东西 ============ -->
+        <div class="col">
+          <div class="panel">
+            <div class="panel-title">剧情与过滤 <span class="muted sm">决定哪些句子算剧情</span></div>
+            <div class="ai-row">
+              <div class="ai-row-text">
+                <b>严格模式</b>
+                <span class="muted sm">没有对话标点的短句一律当界面说明滤掉(菜单说明常常一个标点都没有)</span>
+              </div>
+              <label class="switch"><input id="strict" type="checkbox"><i></i></label>
+            </div>
+            <div class="ai-row">
+              <div class="ai-row-text">
+                <b>新剧情打断上一句</b>
+                <span class="muted sm">上一句还没念完就来了新剧情,立刻掐掉旧的念新的</span>
+              </div>
+              <label class="switch"><input id="interrupt" type="checkbox"><i></i></label>
+            </div>
+            <div class="ai-row">
+              <div class="ai-row-text">
+                <b>最少汉字</b>
+                <span class="muted sm">少于这个字数的短句不算剧情</span>
+              </div>
+              <div class="num-wrap"><input id="minCjk" class="input num" type="number" min="2" max="12" step="1"></div>
+            </div>
+            <div class="field" style="margin-top:12px">
+              <label>额外过滤词(逗号分隔,含这些词的句子不读)</label>
+              <div class="row">
+                <input id="extraWords" class="input grow" placeholder="例如:公告,活动,礼包" spellcheck="false">
+                <button class="btn" id="saveFilter">保存</button>
+              </div>
+            </div>
+            <div class="row" style="gap:10px; margin-top:10px">
+              <button class="btn ghost sm" id="clearLearned">清空已学规则</button>
+              <span class="muted sm">某块界面连续 6 行都没台词标点 → 自动学会忽略它</span>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-title">自动下一句 <span class="muted sm">念完自动帮你推进剧情</span></div>
+            <div class="ai-row">
+              <div class="ai-row-text">
+                <b>剧情读完后自动推进</b>
+                <span class="muted sm">只在<b>确实念完</b>之后动手(要同时开「自动朗读」);按停止或中途来新剧情就不点</span>
+              </div>
+              <label class="switch"><input id="autoNext" type="checkbox"><i></i></label>
+            </div>
+            <div class="ai-row">
+              <div class="ai-row-text">
+                <b>静默推进(不碰鼠标)</b>
+                <span class="muted sm">让 LDC 在<b>游戏内部</b>点一下:真实鼠标一动不动,你切出去看网页也不会被抢鼠标。
+                  关掉才用老的「移动鼠标点一下」</span>
+              </div>
+              <label class="switch"><input id="autoNextSilent" type="checkbox"><i></i></label>
+            </div>
+            <div class="ai-row">
+              <div class="ai-row-text">
+                <b>静默推进失败时用鼠标兜底</b>
+                <span class="muted sm">个别游戏插件点不动,这时退回老办法(会动一下鼠标)</span>
+              </div>
+              <label class="switch"><input id="autoNextFallback" type="checkbox"><i></i></label>
+            </div>
+            <div class="ai-row">
+              <div class="ai-row-text">
+                <b>读完停顿</b>
+                <span class="muted sm">念完等几秒再推进,默认 1 秒</span>
+              </div>
+              <div class="num-wrap"><input id="autoNextDelay" class="input num" type="number" min="0" max="10" step="0.5"></div>
+            </div>
+            <div class="ai-row">
+              <div class="ai-row-text">
+                <b>鼠标兜底时点哪儿</b>
+                <span class="muted sm">只在「静默推进」关掉或失败时才用得上</span>
+              </div>
+              <select id="autoNextPoint" class="input" style="width:190px; flex:none">
+                <option value="center">窗口中央</option>
+                <option value="low">下方文字框一带</option>
+                <option value="bottom">窗口最下面</option>
+              </select>
+            </div>
+            <div class="ai-row">
+              <div class="ai-row-text">
+                <b>没有文字的过场也继续推进</b>
+                <span class="muted sm">有些步骤画面上<b>一个字都没有</b>(只有"点击继续"的指示),读不到台词就不会点、会卡住。打开后:静默一会儿还是没新台词,就自动再推进一下</span>
+              </div>
+              <label class="switch"><input id="autoNextBlank" type="checkbox"><i></i></label>
+            </div>
+            <div class="ai-row" style="border-bottom:0">
+              <div class="ai-row-text">
+                <b>静默多久算「没有文字」</b>
+                <span class="muted sm">默认 2.5 秒。连点 6 次还没新剧情就停手(可能停在选项/菜单上)</span>
+              </div>
+              <div class="num-wrap"><input id="autoNextBlankWait" class="input num" type="number" min="1" max="15" step="0.5"></div>
+            </div>
+            <div class="row" style="gap:8px; margin-top:12px; flex-wrap:wrap">
+              <button class="btn ghost sm" id="testAdvance">测试一次静默推进</button>
+              <span class="muted sm">游戏停在对话上时点这里:成功=鼠标没动而剧情前进了一句</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============ 右栏:朗读 / AI / 窗口 / 进阶 / 关于 ============ -->
+        <div class="col">
+          <div class="panel">
+            <div class="panel-title">朗读 <span class="muted sm">全局声音;单个角色可以在「角色配音」页单独配</span>
+              <span class="grow"></span>
+              <button class="btn ghost sm" id="testVoice"><i>▶</i>试听</button>
+            </div>
+            <div class="field">
+              <label>声音 <span class="muted sm" id="curVoiceKind"></span></label>
+              <select id="globalVoice" class="input"></select>
+            </div>
+            <div class="field">
+              <label>语速 <b id="rateVal">1.00x</b></label>
+              <input id="rate" type="range" min="0.5" max="2" step="0.05" class="bare">
+            </div>
+            <div class="field">
+              <label>声线(音高)<b id="pitchVal">原声</b></label>
+              <input id="pitch" type="range" min="-12" max="12" step="1" class="bare">
+              <span class="muted sm">把同一个声音调低沉或清亮(±12 半音,本地变调,不改语速)。</span>
+            </div>
+            <div class="row" style="gap:8px; margin:-4px 0 12px">
+              <button class="btn ghost sm" id="pitchDown">-2 半音</button>
+              <button class="btn ghost sm" id="pitchReset">还原</button>
+              <button class="btn ghost sm" id="pitchUp">+2 半音</button>
+            </div>
+            <div class="field">
+              <label>音量 <b id="volVal">100%</b></label>
+              <input id="volume" type="range" min="0" max="1.5" step="0.05" class="bare">
+            </div>
+            <div class="ai-row">
+              <div class="ai-row-text">
+                <b>自动朗读</b>
+                <span class="muted sm">读到新剧情就自动念</span>
+              </div>
+              <label class="switch"><input type="checkbox" data-cfg="auto_say"><i></i></label>
+            </div>
+            <div class="ai-row" style="border-bottom:0">
+              <div class="ai-row-text">
+                <b>朗读时念出角色名</b>
+                <span class="muted sm">把【名字】也念出来</span>
+              </div>
+              <label class="switch"><input type="checkbox" data-cfg="say_name"><i></i></label>
+            </div>
+            <div class="muted sm" id="voiceNote" style="margin-top:6px"></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-title">AI 助手 <span class="muted sm">过滤词评审 / 文本翻译共用这一套</span>
+              <span class="grow"></span>
+              <button class="btn ghost sm" id="aiTest">测试连接</button>
+              <button class="btn sm" id="aiSave">保存</button>
+            </div>
+            <div class="row" style="gap:10px; flex-wrap:wrap">
+              <div style="flex:2; min-width:240px">
+                <label class="label">接口地址</label>
+                <input id="aiEndpoint" class="input" placeholder="https://api.deepseek.com/v1/chat/completions">
+              </div>
+              <div style="flex:1; min-width:130px">
+                <label class="label">模型</label>
+                <input id="aiModel" class="input" placeholder="deepseek-chat">
+              </div>
+              <div style="flex:2; min-width:200px">
+                <label class="label">API Key</label>
+                <input id="aiKey" class="input" type="password" placeholder="sk-...">
+              </div>
+            </div>
+            <div class="row" style="gap:10px; flex-wrap:wrap; margin-top:10px">
+              <div style="flex:1; min-width:150px">
+                <label class="label">输入价(元 / 百万 token)</label>
+                <input id="aiPriceIn" class="input num" type="number" min="0" step="0.1" style="width:100%">
+              </div>
+              <div style="flex:1; min-width:150px">
+                <label class="label">输出价(元 / 百万 token)</label>
+                <input id="aiPriceOut" class="input num" type="number" min="0" step="0.1" style="width:100%">
+              </div>
+            </div>
+            <div class="stat-row" id="aiUsage"></div>
+            <p class="muted sm" style="margin:8px 0 0" id="aiState">—</p>
+          </div>
+
+          <div class="panel">
+            <div class="panel-title">窗口与悬浮窗</div>
+            <div class="ai-row">
+              <div class="ai-row-text">
+                <b>窗口置顶</b>
+                <span class="muted sm">让 Lyra 的窗口始终压在游戏上面</span>
+              </div>
+              <label class="switch"><input id="onTop" type="checkbox"><i></i></label>
+            </div>
+            <div class="ai-row">
+              <div class="ai-row-text">
+                <b>游戏关闭后停止读取</b>
+                <span class="muted sm">游戏一关就停止读取剧情,但<b>本程序继续开着</b></span>
+              </div>
+              <label class="switch"><input id="watchGame" type="checkbox"><i></i></label>
+            </div>
+            <div class="ai-row">
+              <div class="ai-row-text">
+                <b>显示悬浮窗</b>
+                <span class="muted sm">固定在屏幕左上角的小条:未展开显示状态 + 游戏 + 已读,点 ▾ 展开看台词和内存/速度,还能直接开关自动朗读、自动点击。点它<b>不会把游戏切出去</b></span>
+              </div>
+              <label class="switch"><input id="floatOn" type="checkbox"><i></i></label>
+            </div>
+            <div class="ai-row" style="border-bottom:0">
+              <div class="ai-row-text">
+                <b>悬浮窗圆角</b>
+                <span class="muted sm">默认 18</span>
+              </div>
+              <div class="num-wrap"><input id="floatCorner" class="input num" type="number" min="0" max="30" step="1"></div>
+            </div>
+          </div>
+
+          <div class="panel fold closed" id="foldHook">
+            <div class="panel-title" id="foldHookHead">
+              LDC(进阶)
+              <span class="muted sm">一般不用动</span>
+              <span class="fold-arrow">▾</span>
+            </div>
+            <div class="fold-body">
+              <div class="field">
+                <label>注入方式 <span class="muted sm">装 LDC 时用哪个系统 DLL 顶替。<b>自动</b>就行;个别游戏装完后<b>联网报错</b>,换成 version 再重装一次</span></label>
+                <div class="row">
+                  <select id="hookProxy" class="input grow">
+                    <option value="auto">自动(推荐)</option>
+                    <option value="version">version.dll(联网兼容最好)</option>
+                    <option value="winhttp">winhttp.dll(默认)</option>
+                    <option value="winmm">winmm.dll</option>
+                  </select>
+                  <button class="btn" id="saveProxy">保存并重装</button>
+                </div>
+                <span class="muted sm" id="proxyHint">换完要重新装一次 LDC,再重启游戏。</span>
+              </div>
+              <div class="field">
+                <label>LDC 档位 <span class="muted sm">IL2CPP 游戏读哪些方法。<b>只挂游戏自己的文本入口</b>最稳;读不到剧情时再往上加(越高越容易闪退)</span></label>
+                <div class="row">
+                  <select id="hookProfile" class="input grow">
+                    <option value="gameonly">只挂游戏自己的文本入口(默认 / 实测唯一稳定)</option>
+                    <option value="tmpro_setonly">再加上 TMPro 的 SetText(实测会闪退)</option>
+                    <option value="tmpro">再加 TMPro 的 set_text(实测会闪退)</option>
+                    <option value="all">连引擎内部也挂(会闪退,别用)</option>
+                  </select>
+                  <button class="btn" id="saveProfile">保存并重装</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-title">关于</div>
+            <p class="muted sm about-text">
+              Lyra · Unity 游戏朗读器 —— 只做 Unity 的 LDC(Mono 与 IL2CPP 游戏都用自带剧情插件),
+              不需要外部翻译插件。<br>
+              <b>不做</b>截图识别 / OCR —— 只读游戏自己正在显示的文字。
+            </p>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  </div>
+</main>
+</div>
+
+<!-- ==================== 底栏(.app 的兄弟节点,占满整行) ==================== -->
+<footer class="bottombar">
+    <div class="wave-wrap">
+      <canvas id="wave"></canvas>
+      <span class="wave-label" id="waveLabel">空闲</span>
+    </div>
+    <div class="bb-metrics">
+      <div class="bb-metric"><span>读取速度</span><b id="bbRate">—</b></div>
+      <div class="bb-metric"><span>内存</span><b id="bbMem">—</b></div>
+      <div class="bb-metric"><span>已读</span><b id="bbCount">0</b></div>
+    </div>
+    <div class="bb-actions">
+      <button class="btn ghost" id="bbStop"><i>■</i>停止</button>
+      <label class="switch" title="出现新剧情自动朗读">
+        <input id="bbAuto" type="checkbox"><i></i><span>自动朗读</span>
+      </label>
+      <button class="btn primary" id="bbRead"><i>▶</i>朗读一次</button>
+    </div>
+  </footer>
+</div>
+
+<!-- ==================== 添加游戏 ==================== -->
+<div id="modalAdd" class="modal hidden">
+  <div class="dlg wide">
+    <div class="dlg-head">
+      <b>添加游戏</b>
+      <button class="icon-btn" data-close>✕</button>
+    </div>
+    <div class="tabs">
+      <button class="tab active" data-tab="scan">自动扫描</button>
+      <button class="tab" data-tab="manual">手动添加路径</button>
+    </div>
+
+    <div class="dlg-body tabpane" id="tab-scan">
+      <div class="scan-bar">
+        <span class="muted sm">只列出 Steam 里的 <b>Unity 游戏</b> · 桌面快捷方式</span>
+        <span class="grow"></span>
+        <button class="btn ghost sm" id="rescan"><i>⟳</i>重新扫描</button>
+      </div>
+      <div class="scan-group">
+        <div class="scan-head"><b>Unity 游戏(Steam)</b><span class="muted sm" id="steamCount"></span></div>
+        <div class="scan-list" id="steamList"><div class="scan-empty">扫描中…</div></div>
+      </div>
+      <div class="scan-group">
+        <div class="scan-head"><b>桌面快捷方式</b><span class="muted sm" id="deskCount"></span></div>
+        <div class="scan-list" id="deskList"><div class="scan-empty">扫描中…</div></div>
+      </div>
+    </div>
+
+    <div class="dlg-body tabpane hidden" id="tab-manual">
+      <div class="field">
+        <label>游戏程序(.exe)</label>
+        <div class="row">
+          <input id="addPath" class="input grow" placeholder="D:\Games\某游戏\Game.exe" spellcheck="false">
+          <button class="btn ghost" id="addBrowse">浏览…</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>显示名称</label>
+        <input id="addName" class="input" placeholder="留空则用文件名" spellcheck="false">
+      </div>
+      <div class="manual-preview">
+        <div class="mi-icon" id="mpIcon">?</div>
+        <div>
+          <div class="mi-name" id="mpName">还没有选择程序</div>
+          <div class="mi-path" id="mpPath">点「浏览…」选择游戏的 exe</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="dlg-foot">
+      <button class="btn ghost" data-close>取消</button>
+      <button class="btn primary" id="addConfirm">添加</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 通用提示框 ==================== -->
+<div id="modal" class="modal hidden">
+  <div class="dlg">
+    <div class="dlg-head"><b id="dlgCaption">提示</b><button class="icon-btn" data-close>✕</button></div>
+    <div class="dlg-body" id="dlgBody"></div>
+    <div class="dlg-foot" id="dlgFoot"><button class="btn primary" data-close>知道了</button></div>
+  </div>
+</div>
+
+<!-- ==================== 语音包(现在是「角色配音」页里的下载入口) ==================== -->
+<div id="modalPacks" class="modal hidden">
+  <div class="dlg wide">
+    <div class="dlg-head">
+      <b>语音包</b>
+      <span class="muted sm" style="margin-left:8px">只提供男声 · 下载后自动出现在声音列表里</span>
+      <button class="icon-btn" data-close>✕</button>
+    </div>
+    <div class="dlg-body">
+      <div class="row" style="gap:8px; margin-bottom:10px; flex-wrap:wrap">
+        <div class="seg-toggle" id="packFilter">
+          <button data-filter="all" class="on">全部</button>
+          <button data-filter="installed">已下载</button>
+          <button data-filter="todo">未下载</button>
+        </div>
+        <span class="grow"></span>
+        <span class="muted sm" id="packSummary"></span>
+        <button class="btn ghost sm" id="reloadVoice"><i>⟳</i>重载引擎</button>
+      </div>
+      <div class="pack-scroll" id="packList"></div>
+    </div>
+    <div class="dlg-foot">
+      <span class="muted sm" style="text-align:left">
+        自带的「超文」不用下载;其余包会在后台下载到本机目录,下载中点「试听」可以先听效果。
+      </span>
+      <button class="btn ghost" data-close>关闭</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts" class="toasts"></div>
+
+<!-- 启动自检:模块加载/语法出错时,页面以前是**白屏且毫无提示**。
+     这段内联脚本必须在模块之前执行,把错误直接显示在页面上(排查省一半时间)。 -->
+<script>
+(function () {
+  var errs = [];
+  function dump() {
+    var d = document.getElementById('bootErr');
+    if (!d) {
+      d = document.createElement('pre');
+      d.id = 'bootErr';
+      d.className = 'boot-err';
+      document.body.appendChild(d);
+    }
+    d.textContent = '界面脚本出错(功能可能不可用):\n' + errs.join('\n');
+  }
+  window.__JSERR = '';
+  window.addEventListener('error', function (e) {
+    var msg = (e.message || e.type) + (e.filename ? ' @' + e.filename.split('/').pop() + ':' + e.lineno : '');
+    window.__JSERR = msg;
+    errs.push(msg);
+    dump();
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    var msg = '未处理的 Promise 异常:' + ((e.reason && e.reason.message) || e.reason);
+    window.__JSERR = window.__JSERR || msg;
+    errs.push(msg);
+    dump();
+  });
+  /* 3 秒后还没拿到状态 = 模块没跑起来(通常是路径写错或语法错) */
+  setTimeout(function () {
+    if (!window.__LY) { errs.push('界面脚本没有启动(模块没加载完)'); dump(); }
+  }, 3000);
+})();
+</script>
+<!-- 逻辑拆成模块:core(工具) → state(状态/刷新) → views/*(每页一个) → boot(启动) -->
+<script type="module" src="/static/js/boot.js"></script>
+</body>
+</html>

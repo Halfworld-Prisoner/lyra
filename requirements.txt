@@ -1,0 +1,20 @@
+# 聆阅 · Unity 游戏朗读器 —— 运行依赖(纯挂钩方案,无 OCR)
+numpy>=1.26
+pillow>=10.0
+requests>=2.31
+winrt-runtime>=2.0
+# 注意:下面这些 WinRT 投影包少一个都会**静默失效** ——
+# 缺 Foundation.Collections 时 SpeechSynthesizer.all_voices 直接抛异常,
+# 被代码 except 吞掉 → 界面上「Windows 本机语音」全空(装机实测踩过这个坑)。
+winrt-Windows.Foundation.Collections>=2.0
+winrt-Windows.Media.SpeechSynthesis>=2.0
+winrt-Windows.Media.Playback>=2.0
+winrt-Windows.Media.Core>=2.0
+winrt-Windows.Storage.Streams>=2.0
+winrt-Windows.Foundation>=2.0
+# 离线神经网络语音(声音包)
+sherpa-onnx>=1.10
+# 在线语音(可选)
+edge-tts>=7.0
+# 系统语音(SAPI 兜底)
+pywin32>=306

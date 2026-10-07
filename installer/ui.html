@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>安装 Lyra</title>
+<style>
+  :root{
+    --bg:#f4f5fa; --card:#ffffff; --txt:#1a1f2b; --muted:#687084; --line:#e3e6ef;
+    --acc:#7c5cff; --acc2:#4aa8ff; --soft:#f7f8fc;
+    --r:14px; --rs:10px;
+    font-family:"Microsoft YaHei UI","Microsoft YaHei",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
+    font-size:13px;line-height:1.7;-webkit-user-select:none;user-select:none}
+  .wrap{display:flex;flex-direction:column;height:100%;padding:14px 16px 12px;overflow:hidden}
+  /* 顶栏 */
+  .head{display:flex;align-items:center;gap:12px}
+  .logo{width:52px;height:52px;border-radius:14px;background:#fff;border:1px solid var(--line);
+    display:grid;place-items:center;overflow:hidden;flex:none}
+  .logo img{width:100%;height:100%;object-fit:cover}
+  .who b{font-size:21px;font-weight:600;letter-spacing:.2px}
+  .who div{font-size:12px;color:var(--muted)}
+  .ver{margin-left:auto;font-size:12px;color:var(--muted);text-align:right}
+  hr{border:0;border-top:1px solid var(--line);margin:14px 0 12px}
+  /* 安装位置 */
+  .lab{font-size:12.5px;font-weight:600;margin-bottom:6px}
+  .path{display:flex;gap:8px}
+  .path input{flex:1;height:36px;padding:0 12px;border:1px solid var(--line);border-radius:var(--rs);
+    background:var(--card);color:var(--txt);font:inherit;outline:none}
+  .path input:focus{border-color:var(--acc);box-shadow:0 0 0 3px rgba(124,92,255,.14)}
+  button{font:inherit;cursor:pointer;border-radius:999px;border:1px solid transparent;transition:.15s}
+  .ghost{height:36px;padding:0 16px;background:var(--card);border-color:var(--line);color:var(--txt)}
+  .ghost:hover{border-color:var(--acc);color:var(--acc)}
+  /* 功能介绍 */
+  .feat{margin-top:14px;background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+    padding:12px 14px}
+  .feat h3{margin:0 0 8px;font-size:13px;font-weight:600}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 16px}
+  .it{display:flex;gap:8px;align-items:flex-start}
+  .it i{width:18px;height:18px;flex:none;border-radius:6px;margin-top:3px;
+    background:linear-gradient(135deg,var(--acc),var(--acc2))}
+  .it b{font-weight:600}
+  .it span{display:block;color:var(--muted);font-size:12px;line-height:1.5}
+  .size{margin-top:10px;font-size:12px;color:var(--muted)}
+  /* 进度与按钮 */
+  .status{margin-top:auto;font-size:12.5px;color:var(--muted);min-height:20px}
+  .bar{height:6px;border-radius:99px;background:#e4e7f0;overflow:hidden;margin:6px 0 12px}
+  .bar i{display:block;height:100%;width:0;border-radius:99px;
+    background:linear-gradient(90deg,var(--acc),var(--acc2));transition:width .3s ease}
+  .foot{display:flex;align-items:center;gap:10px}
+  label.chk{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted)}
+  .right{margin-left:auto;display:flex;gap:10px}
+  .primary{height:38px;padding:0 26px;color:#fff;font-weight:600;
+    background:linear-gradient(135deg,var(--acc),var(--acc2))}
+  .primary:hover{filter:brightness(1.06)}
+  .primary:disabled{background:#c9ccd8;cursor:default;filter:none}
+  #detail{display:none;margin-top:8px;max-height:110px;overflow:auto;font-size:11.5px;color:var(--muted);
+    background:var(--soft);border:1px solid var(--line);border-radius:var(--rs);padding:8px 10px;
+    white-space:pre-wrap;-webkit-user-select:text;user-select:text}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div class="logo"><img id="logo" alt=""></div>
+    <div class="who">
+      <b>Lyra</b>
+      <div>Unity 游戏朗读器 · 把游戏里的文字念出来</div>
+    </div>
+    <div class="ver">版本 1.0<br>完全离线 · 不需要联网</div>
+  </div>
+  <hr>
+
+  <div class="lab">安装到哪里(可以直接改,建议选空间大的盘)</div>
+  <div class="path">
+    <input id="dir" spellcheck="false">
+    <button class="ghost" id="browse">换个位置…</button>
+  </div>
+
+  <div class="feat">
+    <h3>装好之后你能用它做什么</h3>
+    <div class="grid">
+      <div class="it"><i></i><div><b>游戏库</b><span>自动列出 Steam 里的 Unity 游戏,点一下就能启动</span></div></div>
+      <div class="it"><i></i><div><b>实时剧情朗读</b><span>游戏显示的文字,实时念出来;男声离线语音包</span></div></div>
+      <div class="it"><i></i><div><b>角色配音</b><span>每个角色配不同声音,旁白用默认音色</span></div></div>
+      <div class="it"><i></i><div><b>LDC 剧情挂钩</b><span>给游戏接上读取插件,不改游戏文件</span></div></div>
+      <div class="it"><i></i><div><b>文本翻译</b><span>AI 把原文实时换成简体中文,可只改画面或连朗读</span></div></div>
+      <div class="it"><i></i><div><b>过滤规则 / 黑白名单</b><span>界面文字不念,想留下的句子点一下加白名单</span></div></div>
+      <div class="it"><i></i><div><b>自动下一句</b><span>念完在游戏内部静默推进,不动你的鼠标</span></div></div>
+      <div class="it"><i></i><div><b>悬浮窗</b><span>左上角小条:状态、当前台词、内存与速度</span></div></div>
+    </div>
+    <div class="size" id="size">程序本体大约 129 MB;界面、语音、AI 都在本机运行。</div>
+  </div>
+
+  <div id="detail"></div>
+  <div class="status" id="status">准备就绪</div>
+  <div class="bar"><i id="bar"></i></div>
+  <div class="foot">
+    <label class="chk"><input type="checkbox" id="run" checked> 装完立刻打开 Lyra</label>
+    <button class="ghost" id="detailBtn" style="height:30px;padding:0 12px;font-size:12px">显示详情</button>
+    <div class="right">
+      <button class="primary" id="go">开始安装</button>
+      <button class="ghost" id="close">关闭</button>
+    </div>
+  </div>
+</div>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const send = (o) => { try { window.chrome.webview.postMessage(JSON.stringify(o)); } catch (e) {} };
+  let busy = false;
+
+  /* 原生 → 网页(WebUi_Eval 调这三个) */
+  window.__lyra = {
+    src(u) { const i = document.getElementById('logo'); if (i && u) i.src = u; },
+    status(t) { $('status').textContent = t || ''; },
+    progress(n) { $('bar').style.width = Math.max(0, Math.min(100, n)) + '%'; },
+    detail(t) { const d = $('detail'); d.textContent += t; d.scrollTop = d.scrollHeight; },
+    dir(p) { $('dir').value = p || ''; $('dir').title = p || ''; },
+    done(ok) {
+      busy = false;
+      $('go').disabled = false;
+      $('go').textContent = ok ? '重新安装' : '重试';
+      $('status').textContent = ok ? '装好了 —— 可以打开 Lyra,然后在游戏卡片上点「安装 LDC」' : '没装上,换个目录再试一次';
+      $('bar').style.width = ok ? '100%' : '0%';
+    },
+    ready() { send({ cmd: 'ready' }); },
+  };
+
+  $('browse').onclick = () => send({ cmd: 'browse' });
+  $('close').onclick = () => send({ cmd: 'close' });
+  $('detailBtn').onclick = () => {
+    const d = $('detail');
+    const show = d.style.display !== 'block';
+    d.style.display = show ? 'block' : 'none';
+    $('detailBtn').textContent = show ? '收起详情' : '显示详情';
+  };
+  $('go').onclick = () => {
+    if (busy) return;
+    busy = true;
+    $('go').disabled = true;
+    $('go').textContent = '正在安装…';
+    $('status').textContent = '正在安装,请稍候…';
+    send({ cmd: 'install', dir: $('dir').value, run: $('run').checked ? 1 : 0 });
+  };
+  /* 网页自己也能改路径:失焦时同步给原生 */
+  $('dir').addEventListener('change', () => send({ cmd: 'path', dir: $('dir').value }));
+</script>
+</body>
+</html>

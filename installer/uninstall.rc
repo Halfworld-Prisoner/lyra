@@ -1,0 +1,46 @@
+/* 卸载器资源:图标 + 版本信息 + 清单 */
+#include <windows.h>
+
+#define IDI_APPICON 101
+#define IDR_WEBVIEW2  106
+#define IDR_UI_HTML   107
+#define IDR_LOGO_PNG  108
+#define IDR_WEBVIEW2  106
+#define IDR_UI_HTML   107
+#define IDR_LOGO_PNG  108
+
+IDI_APPICON ICON "icon.ico"
+IDR_UI_HTML   RCDATA "ui_uninstall.html"
+IDR_LOGO_PNG  RCDATA "icon-preview-256.png"
+IDR_WEBVIEW2  RCDATA "WebView2Loader.dll"
+
+/* 24 = RT_MANIFEST,1 = CREATEPROCESS_MANIFEST_RESOURCE_ID */
+1 24 "uninstall.manifest"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     2,0,0,0
+PRODUCTVERSION  2,0,0,0
+FILEFLAGSMASK   0x3fL
+FILEFLAGS       0x0L
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_APP
+FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "080404b0"
+        BEGIN
+            VALUE "CompanyName",      "Lyra"
+            VALUE "FileDescription",  "Lyra 卸载程序"
+            VALUE "FileVersion",      "2.0.0.0"
+            VALUE "InternalName",     "LingYueReaderUninstall"
+            VALUE "OriginalFilename", "卸载 Lyra.exe"
+            VALUE "ProductName",      "Lyra"
+            VALUE "ProductVersion",   "2.0.0.0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x804, 1200
+    END
+END

@@ -1,0 +1,971 @@
+/* themes.css
+   主题:暗夜(:root 默认) / 明亮 / 护眼 / Google Material 3。
+
+   分工:
+     · 每个主题都必须定义【同一套】--md-sys-color-* 角色名。
+       dark / light 用 Google 官方基线 hex;sepia 把既有配色映射到同名角色。
+       这样任何组件都能安全引用角色,不会因为切主题掉色。
+     · L2 组件"皮肤"变量(见 tokens.css)在这里被 html[data-theme="md3"] 覆盖,
+       组件 CSS 只消费变量,所以"结构"只在 MD3 下变化,另外三个主题观感不变。
+     · 变量表达不了的结构(开关拇指行程、导航药丸、状态层、焦点环、
+       弹窗进出场位移)集中放在文件末尾的 MD3 结构块里。
+
+   颜色数值来源:material-web tokens/versions/v0_192/_md-sys-color.scss
+   + _md-ref-palette.scss(官方基线);语义色(ok/warn)取自同一份
+   _md-ref-palette.scss 的扩展调色板 green80 / orange80。
+   ================================================================ */
+
+/* ================================================================
+   1 · 暗夜主题的 M3 角色 = 官方 **dark 基线**(逐字节照抄,未做任何改动)
+   ================================================================ */
+:root {
+  --md-sys-color-primary: #D0BCFF;
+  --md-sys-color-on-primary: #381E72;
+  --md-sys-color-primary-container: #4F378B;
+  --md-sys-color-on-primary-container: #EADDFF;
+  --md-sys-color-secondary: #CCC2DC;
+  --md-sys-color-on-secondary: #332D41;
+  --md-sys-color-secondary-container: #4A4458;
+  --md-sys-color-on-secondary-container: #E8DEF8;
+  --md-sys-color-tertiary: #EFB8C8;
+  --md-sys-color-on-tertiary: #492532;
+  --md-sys-color-tertiary-container: #633B48;
+  --md-sys-color-on-tertiary-container: #FFD8E4;
+  --md-sys-color-error: #F2B8B5;
+  --md-sys-color-on-error: #601410;
+  --md-sys-color-error-container: #8C1D18;
+  --md-sys-color-on-error-container: #F9DEDC;
+  --md-sys-color-surface: #141218;
+  --md-sys-color-on-surface: #E6E0E9;
+  --md-sys-color-surface-variant: #49454F;
+  --md-sys-color-on-surface-variant: #CAC4D0;
+  --md-sys-color-surface-dim: #141218;
+  --md-sys-color-surface-bright: #3B383E;
+  --md-sys-color-surface-container-lowest: #0F0D13;
+  --md-sys-color-surface-container-low: #1D1B20;
+  --md-sys-color-surface-container: #211F26;
+  --md-sys-color-surface-container-high: #2B2930;
+  --md-sys-color-surface-container-highest: #36343B;
+  --md-sys-color-outline: #938F99;
+  --md-sys-color-outline-variant: #49454F;
+  --md-sys-color-inverse-surface: #E6E0E9;
+  --md-sys-color-inverse-on-surface: #322F35;
+  --md-sys-color-inverse-primary: #6750A4;
+  --md-sys-color-scrim: #000000;
+  --md-sys-color-shadow: #000000;
+}
+
+/* ================================================================
+   2 · 明亮主题:官方 **light 基线**角色(不改观感,只补齐角色名)
+   ================================================================ */
+html[data-theme="light"] {
+  --md-sys-color-primary: #6750A4;
+  --md-sys-color-on-primary: #FFFFFF;
+  --md-sys-color-primary-container: #EADDFF;
+  --md-sys-color-on-primary-container: #21005D;
+  --md-sys-color-secondary: #625B71;
+  --md-sys-color-on-secondary: #FFFFFF;
+  --md-sys-color-secondary-container: #E8DEF8;
+  --md-sys-color-on-secondary-container: #1D192B;
+  --md-sys-color-tertiary: #7D5260;
+  --md-sys-color-on-tertiary: #FFFFFF;
+  --md-sys-color-tertiary-container: #FFD8E4;
+  --md-sys-color-on-tertiary-container: #31111D;
+  --md-sys-color-error: #B3261E;
+  --md-sys-color-on-error: #FFFFFF;
+  --md-sys-color-error-container: #F9DEDC;
+  --md-sys-color-on-error-container: #410E0B;
+  --md-sys-color-surface: #FEF7FF;
+  --md-sys-color-on-surface: #1D1B20;
+  --md-sys-color-surface-variant: #E7E0EC;
+  --md-sys-color-on-surface-variant: #49454F;
+  --md-sys-color-surface-dim: #DED8E1;
+  --md-sys-color-surface-bright: #FEF7FF;
+  --md-sys-color-surface-container-lowest: #FFFFFF;
+  --md-sys-color-surface-container-low: #F7F2FA;
+  --md-sys-color-surface-container: #F3EDF7;
+  --md-sys-color-surface-container-high: #ECE6F0;
+  --md-sys-color-surface-container-highest: #E6E0E9;
+  --md-sys-color-outline: #79747E;
+  --md-sys-color-outline-variant: #CAC4D0;
+  --md-sys-color-inverse-surface: #322F35;
+  --md-sys-color-inverse-on-surface: #F5EFF7;
+  --md-sys-color-inverse-primary: #D0BCFF;
+  --md-sys-color-scrim: #000000;
+  --md-sys-color-shadow: #000000;
+}
+
+/* 鐧芥樇妯″紡 */
+html[data-theme="light"] {
+  --bg:        #f1f3f8;
+  --side:      #ffffff;
+  --panel:     #ffffff;
+  --panel-2:   #f6f7fb;
+  --line:      rgba(16, 24, 40, .10);
+  --line-2:    rgba(16, 24, 40, .18);
+  --text:      #1a1f2b;
+  --muted:     #5d6a80;
+  --muted-2:   #8b94a6;
+  --accent-2:  #3b82f6;
+  --ok:        #12a150;
+  --warn:      #c2760a;
+  --danger:    #e5484d;
+  --shadow:    0 8px 24px rgba(16, 24, 40, .12);
+  --soft:      rgba(16, 24, 40, .035);
+  --soft-2:    rgba(16, 24, 40, .07);
+  --stage:     radial-gradient(120% 120% at 50% 0%, #f7f8fc 0%, #e9ecf3 100%);
+  --overlay:   rgba(241, 243, 248, .97);
+  --bar-bg:    rgba(255, 255, 255, .94);
+  --toast-bg:  rgba(255, 255, 255, .99);
+  --md-track:  rgba(16, 24, 40, .08);
+  --md-outline: rgba(16, 24, 40, .30);
+  --md-outline-hover: rgba(16, 24, 40, .48);
+  --md-handle: #78829a;
+}
+html[data-theme="light"] .nav-item.active { color: #4534e8; }
+html[data-theme="light"] .nav-item.active i { color: #6d5efc; }
+html[data-theme="light"] .nav-item.active { background: linear-gradient(135deg, rgba(109, 94, 252, .16), rgba(59, 130, 246, .10)); }
+html[data-theme="light"] kbd { background: rgba(16, 24, 40, .06); color: #3d4657; }
+html[data-theme="light"] .toast { color: var(--text); }
+html[data-theme="light"] .wave-label { background: rgba(255, 255, 255, .8); }
+html[data-theme="light"] #status { color: var(--text); }
+
+/* ================================================================
+   3 · 护眼主题:把既有暖色配色**映射**到 M3 角色名(观感不变)
+   ================================================================ */
+html[data-theme="sepia"] {
+  --md-sys-color-primary: var(--accent);
+  --md-sys-color-on-primary: #fff;
+  --md-sys-color-primary-container: #e8d3ac;
+  --md-sys-color-on-primary-container: #4a3210;
+  --md-sys-color-secondary: var(--accent-2);
+  --md-sys-color-on-secondary: #fff;
+  --md-sys-color-secondary-container: #dbe7e0;
+  --md-sys-color-on-secondary-container: #1f3d34;
+  --md-sys-color-tertiary: #8a6a3c;
+  --md-sys-color-on-tertiary: #fff;
+  --md-sys-color-tertiary-container: #ecdfc4;
+  --md-sys-color-on-tertiary-container: #3a2c14;
+  --md-sys-color-error: var(--danger);
+  --md-sys-color-on-error: #fff;
+  --md-sys-color-error-container: #f2d7d2;
+  --md-sys-color-on-error-container: #4d1a15;
+  --md-sys-color-surface: var(--bg);
+  --md-sys-color-on-surface: var(--text);
+  --md-sys-color-surface-variant: var(--panel-2);
+  --md-sys-color-on-surface-variant: var(--muted);
+  --md-sys-color-surface-dim: #e7dcc6;
+  --md-sys-color-surface-bright: #fdfaf1;
+  --md-sys-color-surface-container-lowest: #fdfaf1;
+  --md-sys-color-surface-container-low: var(--side);
+  --md-sys-color-surface-container: var(--panel);
+  --md-sys-color-surface-container-high: var(--panel-2);
+  --md-sys-color-surface-container-highest: #efe4cd;
+  --md-sys-color-outline: var(--muted-2);
+  --md-sys-color-outline-variant: var(--line-2);
+  --md-sys-color-inverse-surface: #3f3527;
+  --md-sys-color-inverse-on-surface: #f7f1e4;
+  --md-sys-color-inverse-primary: #e8d3ac;
+  --md-sys-color-scrim: #000000;
+  --md-sys-color-shadow: #000000;
+}
+
+/* ================================================================
+   4 · Google Material 3(深色色调面板)
+   ================================================================
+   4.1 角色 = 官方 dark 基线(与 :root 同一套;这里显式写出,便于单独改)
+   ================================================================ */
+html[data-theme="md3"] {
+  --md-sys-color-primary: #D0BCFF;
+  --md-sys-color-on-primary: #381E72;
+  --md-sys-color-primary-container: #4F378B;
+  --md-sys-color-on-primary-container: #EADDFF;
+  --md-sys-color-secondary: #CCC2DC;
+  --md-sys-color-on-secondary: #332D41;
+  --md-sys-color-secondary-container: #4A4458;
+  --md-sys-color-on-secondary-container: #E8DEF8;
+  --md-sys-color-tertiary: #EFB8C8;
+  --md-sys-color-on-tertiary: #492532;
+  --md-sys-color-tertiary-container: #633B48;
+  --md-sys-color-on-tertiary-container: #FFD8E4;
+  --md-sys-color-error: #F2B8B5;
+  --md-sys-color-on-error: #601410;
+  --md-sys-color-error-container: #8C1D18;
+  --md-sys-color-on-error-container: #F9DEDC;
+  --md-sys-color-surface: #141218;
+  --md-sys-color-on-surface: #E6E0E9;
+  --md-sys-color-surface-variant: #49454F;
+  --md-sys-color-on-surface-variant: #CAC4D0;
+  --md-sys-color-surface-dim: #141218;
+  --md-sys-color-surface-bright: #3B383E;
+  --md-sys-color-surface-container-lowest: #0F0D13;
+  --md-sys-color-surface-container-low: #1D1B20;
+  --md-sys-color-surface-container: #211F26;
+  --md-sys-color-surface-container-high: #2B2930;
+  --md-sys-color-surface-container-highest: #36343B;
+  --md-sys-color-outline: #938F99;
+  --md-sys-color-outline-variant: #49454F;
+  --md-sys-color-inverse-surface: #E6E0E9;
+  --md-sys-color-inverse-on-surface: #322F35;
+  --md-sys-color-inverse-primary: #6750A4;
+  --md-sys-color-scrim: #000000;
+  --md-sys-color-shadow: #000000;
+}
+
+/* ================================================================
+   4.2 既有变量 → M3 角色映射(界面上所有旧样式自动跟着走)
+   ================================================================ */
+html[data-theme="md3"] {
+  --bg:        var(--md-sys-color-surface);                 /* 最底层 */
+  --side:      var(--md-sys-color-surface-container-low);   /* 侧栏 */
+  --panel:     var(--md-sys-color-surface-container);       /* 面板 */
+  --panel-2:   var(--md-sys-color-surface-container-high);  /* 面板内的次级块 */
+  --line:      var(--md-sys-color-outline-variant);         /* 分隔线 */
+  --line-2:    var(--md-sys-color-outline);                 /* 强边框 */
+  --text:      var(--md-sys-color-on-surface);
+  --muted:     var(--md-sys-color-on-surface-variant);
+  --muted-2:   var(--md-sys-color-outline);
+  --txt:       var(--md-sys-color-on-surface);
+  --txt-2:     var(--md-sys-color-on-surface-variant);
+  --accent:    var(--md-sys-color-primary);
+  --accent-2:  var(--md-sys-color-tertiary);
+  --accent-soft: color-mix(in srgb, var(--md-sys-color-primary) 16%, transparent);
+  --ok:        #80DA88;   /* 官方扩展调色板 green80 */
+  --warn:      #FFB683;   /* 官方扩展调色板 orange80 */
+  --danger:    var(--md-sys-color-error);
+  --soft:      color-mix(in srgb, var(--md-sys-color-on-surface) 5%, transparent);
+  --soft-2:    color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent);
+  --input:     var(--md-sys-color-surface-container-lowest); /* 凹槽(日志/规则列表) */
+  --stage:     radial-gradient(120% 120% at 50% 0%,
+                 var(--md-sys-color-surface-container-low) 0%,
+                 var(--md-sys-color-surface) 100%);
+  --overlay:   color-mix(in srgb, var(--md-sys-color-surface) 96%, transparent);
+  --bar-bg:    color-mix(in srgb, var(--md-sys-color-surface-container) 97%, transparent);
+  --toast-bg:  var(--md-sys-color-inverse-surface);         /* 注意:暗色下是**浅色** */
+  --md-track:  var(--md-sys-color-surface-container-highest);
+  --md-outline: var(--md-sys-color-outline);
+  --md-outline-hover: var(--md-sys-color-on-surface-variant);
+  --md-handle: var(--md-sys-color-outline);                 /* M3 未选中手柄 = outline */
+  --radius:    var(--md-sys-shape-corner-medium);           /* 12px */
+  --radius-sm: var(--md-sys-shape-corner-small);            /* 8px */
+  --shadow:    var(--md-sys-elevation-level2);
+  /* 分类色也走官方调色板,保持"一眼能分辨"的同时不刺眼 */
+  --c-mono:    #80DA88;
+  --c-warn:    #FFB683;
+  --c-off:     var(--md-sys-color-outline);
+  --c-multi:   var(--md-sys-color-tertiary);
+  --c-male:    #A1C9FF;
+  --c-female:  #FFAEE4;
+  --c-il2cpp:  #FFB683;
+}
+
+/* ================================================================
+   4.3 L2 组件皮肤 → M3 值(组件 CSS 只消费变量,不写主题判断)
+   ================================================================ */
+html[data-theme="md3"] {
+  /* 字体比例 */
+  --ui-font: var(--md-ref-typeface-plain);
+  --ui-body-size: var(--md-sys-typescale-body-medium-size);   /* 14px */
+  --ui-body-line: var(--md-sys-typescale-body-medium-line-height);
+
+  /* 按钮:胶囊 9999、高 40、左右 24(带前置图标 16/24),文字 label-large 500 */
+  --ui-btn-h: 40px;
+  --ui-btn-h-sm: 32px;                                        /* 小号 = Expressive xsmall */
+  --ui-btn-pad: 24px;
+  --ui-btn-pad-sm: 12px;
+  --ui-btn-pad-icon: 16px;
+  --ui-btn-radius: var(--md-sys-shape-corner-full);
+  --ui-btn-weight: var(--md-sys-typescale-label-large-weight);
+  --ui-btn-gap: 8px;
+  --ui-btn-icon-size: 14px;
+  --ui-btn-font-size: var(--md-sys-typescale-label-large-size);
+  --ui-btn-letter: 0;                                          /* 中文不要拉丁字距 */
+  --ui-btn-lift: none;
+
+  /* filled = primary / on-primary;hover +8%、按下 +12% 状态层 */
+  --ui-btn-primary-bg: var(--md-sys-color-primary);
+  --ui-btn-primary-bg-hover: color-mix(in srgb, var(--md-sys-color-on-primary) 8%, var(--md-sys-color-primary));
+  --ui-btn-primary-bg-active: color-mix(in srgb, var(--md-sys-color-on-primary) 12%, var(--md-sys-color-primary));
+  --ui-btn-primary-fg: var(--md-sys-color-on-primary);
+  --ui-btn-primary-bd: 1px solid transparent;
+  --ui-btn-primary-sd: var(--md-sys-elevation-level0);
+  --ui-btn-primary-sd-hover: var(--md-sys-elevation-level1);
+  --ui-btn-primary-sd-active: var(--md-sys-elevation-level0);
+  --ui-btn-primary-filter: none;
+
+  /* 中性按钮 = M3 filled tonal(次要动作) */
+  --ui-btn-bg: var(--md-sys-color-surface-container-high);
+  --ui-btn-bg-hover: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, var(--md-sys-color-surface-container-high));
+  --ui-btn-bg-active: color-mix(in srgb, var(--md-sys-color-on-surface) 12%, var(--md-sys-color-surface-container-high));
+  --ui-btn-fg: var(--md-sys-color-on-surface);
+  --ui-btn-fg-hover: var(--md-sys-color-on-surface);
+  --ui-btn-bd: 1px solid transparent;
+  --ui-btn-bd-hover: 1px solid transparent;
+  --ui-btn-sd: none;
+  --ui-btn-sd-hover: none;
+  --ui-btn-sd-active: none;
+
+  /* ghost = M3 outlined(1px outline + primary 文字) */
+  --ui-btn-ghost-bg: transparent;
+  --ui-btn-ghost-bg-hover: color-mix(in srgb, var(--md-sys-color-primary) 8%, transparent);
+  --ui-btn-ghost-bg-active: color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent);
+  --ui-btn-ghost-fg: var(--md-sys-color-primary);
+  --ui-btn-ghost-fg-hover: var(--md-sys-color-primary);
+  --ui-btn-ghost-bd: 1px solid var(--md-sys-color-outline);
+  --ui-btn-ghost-bd-hover: 1px solid var(--md-sys-color-outline);
+
+  /* danger 用 error 角色 */
+  --ui-btn-danger-bg: var(--md-sys-color-error-container);
+  --ui-btn-danger-bg-hover: color-mix(in srgb, var(--md-sys-color-on-error-container) 8%, var(--md-sys-color-error-container));
+  --ui-btn-danger-bg-active: color-mix(in srgb, var(--md-sys-color-on-error-container) 12%, var(--md-sys-color-error-container));
+  --ui-btn-danger-fg: var(--md-sys-color-on-error-container);
+  --ui-btn-danger-bd: 1px solid transparent;
+  --ui-btn-danger-filter: none;
+  --ui-btn-danger-weight: 500;
+
+  /* 输入/下拉 = M3 filled 文本框:surface-container-highest + 只圆上两角 + 底部指示条 */
+  --ui-field-h: 40px;
+  --ui-field-pad: 0 16px;
+  --ui-field-bg: var(--md-sys-color-surface-container-highest);
+  --ui-field-fg: var(--md-sys-color-on-surface);
+  --ui-field-bd: 1px solid transparent;
+  --ui-field-bd-bottom: 1px solid var(--md-sys-color-on-surface-variant);
+  --ui-field-radius: var(--md-sys-shape-corner-extra-small) var(--md-sys-shape-corner-extra-small) 0 0;
+  --ui-field-ph: var(--md-sys-color-on-surface-variant);
+  --ui-field-focus-bd-c: transparent;
+  --ui-field-focus-bd-bottom-c: var(--md-sys-color-primary);
+  --ui-field-focus-ring: inset 0 -2px 0 0 var(--md-sys-color-primary);
+
+  /* 开关:52×32 轨道 / 手柄 16→24(按下 28)/ 行程 20 */
+  --ui-switch-radius: var(--md-sys-shape-corner-full);
+  --ui-switch-track: var(--md-sys-color-surface-container-highest);
+  --ui-switch-track-bd: inset 0 0 0 2px var(--md-sys-color-outline);
+  --ui-switch-track-bd-hover: inset 0 0 0 2px var(--md-sys-color-outline);
+  --ui-switch-track-on: var(--md-sys-color-primary);
+  --ui-switch-thumb: var(--md-sys-color-outline);
+  --ui-switch-thumb-on: var(--md-sys-color-on-primary);
+  --ui-switch-thumb-on-c: var(--md-sys-color-on-primary-container);
+  --ui-switch-thumb-hover-c: var(--md-sys-color-on-surface-variant);
+  --ui-switch-thumb-hover-on-c: var(--md-sys-color-primary-container);
+  --ui-switch-thumb-off-w: 16px;
+  --ui-switch-thumb-off-l: 8px;
+  --ui-switch-thumb-on-w: 24px;
+  --ui-switch-thumb-on-l: 24px;
+  --ui-switch-thumb-hover-w: 16px;      /* M3 hover 只变色,不变大 */
+  --ui-switch-thumb-hover-l: 8px;
+  --ui-switch-thumb-press-w: 28px;      /* M3 按下才变大 */
+  --ui-switch-thumb-press-l: 2px;
+  --ui-switch-thumb-hover-on-w: 24px;
+  --ui-switch-thumb-hover-on-l: 24px;
+  --ui-switch-thumb-press-on-w: 28px;
+  --ui-switch-thumb-press-on-l: 22px;
+  --ui-switch-icon-size: 16px;
+  --ui-switch-ease: var(--md-sys-motion-easing-standard);
+  --ui-switch-dur: var(--md-sys-motion-duration-medium1);
+  /* 状态层:40px 圆(手柄 + 两侧留白),用 box-shadow 外扩实现 */
+  --ui-switch-layer-hover: 0 0 0 12px color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent);
+  --ui-switch-layer-press: 0 0 0 12px color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent);
+
+  /* 面板 / 卡片:圆角 12、filled 层级、不堆阴影 */
+  --ui-panel-bg: var(--md-sys-color-surface-container);
+  --ui-panel-bd: 1px solid transparent;
+  --ui-panel-radius: var(--md-sys-shape-corner-medium);
+  --ui-panel-sd: none;
+  --ui-panel-pad: 16px;
+  --ui-card-bg: var(--md-sys-color-surface-container);
+  --ui-card-bg-hover: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, var(--md-sys-color-surface-container));
+  --ui-card-bg-active: var(--md-sys-color-secondary-container);
+  --ui-card-bd: 1px solid transparent;
+  --ui-card-bd-active: 1px solid transparent;
+  --ui-card-radius: var(--md-sys-shape-corner-medium);
+  --ui-card-sd: none;
+  --ui-card-sd-hover: none;             /* 层级靠 surface,不靠阴影 */
+  --ui-card-lift: none;
+
+  /* 弹窗:28px 圆角 + surface-container-high + level3 */
+  --ui-dlg-bg: var(--md-sys-color-surface-container-high);
+  --ui-dlg-bd: 1px solid transparent;
+  --ui-dlg-radius: var(--md-sys-shape-corner-extra-large);
+  --ui-dlg-sd: var(--md-sys-elevation-level3);
+  --ui-dlg-head-pad: 24px 24px 0;
+  --ui-dlg-body-pad: 24px;
+  --ui-dlg-foot-pad: 16px 24px 24px;
+  --ui-dlg-enter: md3-dlg-in 500ms var(--md-sys-motion-easing-emphasized);
+
+  /* toast = inverse-surface(暗色下是浅色卡片) */
+  --ui-toast-bg: var(--md-sys-color-inverse-surface);
+  --ui-toast-fg: var(--md-sys-color-inverse-on-surface);
+  --ui-toast-bd: 1px solid transparent;
+  --ui-toast-radius: var(--md-sys-shape-corner-extra-small);
+  --ui-toast-sd: var(--md-sys-elevation-level3);
+  --ui-toast-accent: var(--md-sys-color-inverse-primary);
+  --ui-toast-pad: 14px 16px;
+  --ui-toast-font-size: var(--md-sys-typescale-body-medium-size);
+
+  /* 导航项(侧栏 = M3 展开式导航栏 / 抽屉:56px 高,选中 = secondary-container 药丸) */
+  --ui-nav-radius: var(--md-sys-shape-corner-full);
+  --ui-nav-bg-hover: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent);
+  --ui-nav-bg-active: transparent;      /* 背景由 .nav-pill 画 */
+  --ui-nav-fg: var(--md-sys-color-on-surface-variant);
+  --ui-nav-fg-active: var(--md-sys-color-on-secondary-container);
+  --ui-nav-hover-shift: 16px;
+  --ui-nav-pad: 0 16px;
+
+  /* 分段按钮:首尾 20px 胶囊、中间直角、1px 边框当分隔线、选中 secondary-container */
+  --ui-seg-h: 40px;
+  --ui-seg-pad: 0;
+  --ui-seg-radius: var(--md-sys-shape-corner-full);
+  --ui-seg-bg: transparent;
+  --ui-seg-bd: 1px solid var(--md-sys-color-outline);
+  --ui-seg-item-radius: 0;
+  --ui-seg-item-bg: transparent;
+  --ui-seg-item-bg-hover: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent);
+  --ui-seg-item-fg: var(--md-sys-color-on-surface);
+  --ui-seg-on-bg: var(--md-sys-color-secondary-container);
+  --ui-seg-on-bg-hover: color-mix(in srgb, var(--md-sys-color-on-secondary-container) 8%, var(--md-sys-color-secondary-container));
+  --ui-seg-on-fg: var(--md-sys-color-on-secondary-container);
+  --ui-seg-on-sd: none;
+  --ui-seg-divider: 1px solid var(--md-sys-color-outline);
+  --ui-seg-item-pad: 0 16px;
+  --ui-seg-weight: var(--md-sys-typescale-label-large-weight);
+
+  /* 焦点环:3px secondary + 外偏 2px(§5.4) */
+  --ui-focus-ring: none;
+  --ui-focus-outline: 3px solid var(--md-sys-color-secondary);
+  --ui-focus-offset: 2px;
+}
+
+/* ================================================================
+   4.4 MD3 结构块 —— 变量表达不了的部分
+   ================================================================ */
+
+/* ---------- 字体与排版节奏(4dp 栅格) ---------- */
+html[data-theme="md3"] body {
+  font-family: var(--md-ref-typeface-plain);
+  font-size: var(--ui-body-size);
+  line-height: var(--ui-body-line);
+  letter-spacing: 0;
+  background: var(--md-sys-color-surface);
+}
+html[data-theme="md3"] .sm { font-size: var(--md-sys-typescale-body-small-size); line-height: 20px; }
+html[data-theme="md3"] .panel-title {
+  font-size: var(--md-sys-typescale-title-medium-size);
+  line-height: var(--md-sys-typescale-title-medium-line-height);
+  font-weight: var(--md-sys-typescale-title-medium-weight);
+  letter-spacing: 0;
+  color: var(--md-sys-color-on-surface);
+}
+html[data-theme="md3"] .section-head h2 {
+  font-size: var(--md-sys-typescale-title-small-size);
+  line-height: var(--md-sys-typescale-title-small-line-height);
+  font-weight: var(--md-sys-typescale-title-small-weight);
+  color: var(--md-sys-color-on-surface);
+}
+html[data-theme="md3"] .nav-item span,
+html[data-theme="md3"] .btn,
+html[data-theme="md3"] .seg-toggle button,
+html[data-theme="md3"] .theme-pick button,
+html[data-theme="md3"] .tab {
+  font-size: var(--md-sys-typescale-label-large-size);
+  line-height: var(--md-sys-typescale-label-large-line-height);
+  font-weight: var(--md-sys-typescale-label-large-weight);
+  letter-spacing: 0;
+}
+
+/* ---------- 外壳:顶栏 64(小号 top app bar)、底栏、侧栏 ---------- */
+html[data-theme="md3"] .topbar {
+  height: 64px;
+  padding: 0 16px;
+  gap: 16px;
+  background: var(--md-sys-color-surface-container);
+  border-bottom: 1px solid transparent;
+}
+html[data-theme="md3"] .topbar h1 {
+  font-size: var(--md-sys-typescale-title-large-size);
+  line-height: var(--md-sys-typescale-title-large-line-height);
+  font-weight: var(--md-sys-typescale-title-large-weight);
+  letter-spacing: 0;
+  color: var(--md-sys-color-on-surface);
+}
+html[data-theme="md3"] .bottombar {
+  background: var(--md-sys-color-surface-container);
+  border-top: 1px solid transparent;
+}
+html[data-theme="md3"] .sidebar {
+  width: 240px;
+  padding: 16px 12px;
+  background: var(--md-sys-color-surface-container-low);
+  border-right: 1px solid transparent;
+}
+html[data-theme="md3"] .content { padding: 24px; }
+html[data-theme="md3"] .panel { margin-bottom: 16px; }
+
+/* 品牌区 */
+html[data-theme="md3"] .brand { padding: 0 4px 16px; }
+html[data-theme="md3"] .logo {
+  border-radius: var(--md-sys-shape-corner-medium);
+  background: var(--md-sys-color-primary-container);
+  box-shadow: none;
+}
+html[data-theme="md3"] .logo svg rect { fill: var(--md-sys-color-on-primary-container); }
+html[data-theme="md3"] .brand-text b {
+  font-size: var(--md-sys-typescale-title-medium-size);
+  font-weight: var(--md-sys-typescale-title-medium-weight);
+  color: var(--md-sys-color-on-surface);
+}
+html[data-theme="md3"] .brand-text span { font-size: var(--md-sys-typescale-label-medium-size); color: var(--md-sys-color-on-surface-variant); }
+
+/* ---------- 侧栏导航 = M3 导航抽屉条目:56px 高 + secondary-container 药丸 ---------- */
+html[data-theme="md3"] .nav { gap: 4px; }
+html[data-theme="md3"] .nav-item {
+  min-height: 56px;
+  padding: var(--ui-nav-pad);
+  gap: 12px;
+  border-radius: var(--md-sys-shape-corner-full);
+  color: var(--md-sys-color-on-surface-variant);
+  transition: color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
+              background-color var(--md-sys-motion-duration-short4) linear;
+}
+html[data-theme="md3"] .nav-item i {
+  width: 24px; font-size: 18px; line-height: 24px;
+  color: var(--md-sys-color-on-surface-variant);
+  transition: color var(--md-sys-motion-duration-short4) linear;
+}
+html[data-theme="md3"] .nav-item:hover { background: var(--ui-nav-bg-hover); color: var(--md-sys-color-on-surface); }
+html[data-theme="md3"] .nav-item:hover i { color: var(--md-sys-color-on-surface); }
+html[data-theme="md3"] .nav-item:hover { padding-left: 16px; }   /* 关掉旧主题的左移微动效 */
+html[data-theme="md3"] .nav-item:hover i { transform: none; }
+html[data-theme="md3"] .nav-item.active,
+html[data-theme="md3"] .nav-item.active i { color: var(--md-sys-color-on-secondary-container); }
+html[data-theme="md3"] .nav-item.active { background: transparent; box-shadow: none; }
+html[data-theme="md3"] .nav-item.active i { transform: none; }
+html[data-theme="md3"] .nav-pill {
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-secondary-container);
+  box-shadow: none;
+  transition: transform var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized),
+              height var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+}
+html[data-theme="md3"] .nav-item .dot {
+  background: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+/* 侧栏底部:主题选择 + 内存条 */
+html[data-theme="md3"] .theme-box,
+html[data-theme="md3"] .gauge {
+  background: var(--md-sys-color-surface-container);
+  border: 1px solid transparent;
+  border-radius: var(--md-sys-shape-corner-medium);
+}
+html[data-theme="md3"] .theme-pick button {
+  min-height: 40px;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: transparent;
+  border: 1px solid var(--md-sys-color-outline);
+  color: var(--md-sys-color-on-surface-variant);
+}
+html[data-theme="md3"] .theme-pick button:hover {
+  background: color-mix(in srgb, var(--md-sys-color-primary) 8%, transparent);
+  color: var(--md-sys-color-primary);
+  border-color: var(--md-sys-color-outline);
+}
+html[data-theme="md3"] .theme-pick button.on {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+  border-color: transparent;
+  font-weight: 500;
+}
+html[data-theme="md3"] .theme-top b { color: var(--md-sys-color-primary); }
+html[data-theme="md3"] .gauge-bar { background: var(--md-sys-color-surface-container-highest); border-radius: var(--md-sys-shape-corner-full); }
+html[data-theme="md3"] .gauge-bar i { background: var(--md-sys-color-primary); border-radius: var(--md-sys-shape-corner-full); }
+
+/* ---------- 顶栏控件 ---------- */
+html[data-theme="md3"] .search {
+  height: 40px;
+  width: 320px;
+  padding: 0 16px;
+  border: 1px solid transparent;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-surface-container-high);
+}
+html[data-theme="md3"] .search i { color: var(--md-sys-color-on-surface-variant); }
+html[data-theme="md3"] .search input { color: var(--md-sys-color-on-surface); }
+html[data-theme="md3"] .search input::placeholder { color: var(--md-sys-color-on-surface-variant); }
+html[data-theme="md3"] .search:focus-within {
+  border-color: transparent;
+  box-shadow: inset 0 0 0 2px var(--md-sys-color-primary);
+}
+html[data-theme="md3"] .chip {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--md-sys-shape-corner-small);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  background: transparent;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-label-large-size);
+  font-weight: var(--md-sys-typescale-label-large-weight);
+  gap: 8px;
+}
+html[data-theme="md3"] .chip.busy { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 50%, transparent); }
+html[data-theme="md3"] .chip.err { color: var(--md-sys-color-error); border-color: color-mix(in srgb, var(--md-sys-color-error) 50%, transparent); }
+html[data-theme="md3"] .chip .led { box-shadow: none; }
+
+/* 图标按钮 = M3 standard icon button:40×40 胶囊、无边框、状态层 8%/12% */
+html[data-theme="md3"] .icon-btn {
+  width: 40px; height: 40px;
+  font-size: 16px;
+  border: 1px solid transparent;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: transparent;
+  color: var(--md-sys-color-on-surface-variant);
+}
+html[data-theme="md3"] .icon-btn:hover {
+  background: color-mix(in srgb, var(--md-sys-color-on-surface-variant) 8%, transparent);
+  border-color: transparent;
+  color: var(--md-sys-color-on-surface);
+}
+html[data-theme="md3"] .icon-btn:active {
+  background: color-mix(in srgb, var(--md-sys-color-on-surface-variant) 12%, transparent);
+}
+html[data-theme="md3"] .icon-btn.danger:hover {
+  background: color-mix(in srgb, var(--md-sys-color-error) 12%, transparent);
+  color: var(--md-sys-color-error);
+  border-color: transparent;
+}
+html[data-theme="md3"] .icon-btn.danger:active {
+  background: color-mix(in srgb, var(--md-sys-color-error) 16%, transparent);
+}
+
+/* ---------- 按钮:细节补丁(filled 的 text 用 on-primary 等) ---------- */
+html[data-theme="md3"] .btn.primary { color: var(--md-sys-color-on-primary); }
+html[data-theme="md3"] .btn.primary:hover { color: var(--md-sys-color-on-primary); filter: none; }
+html[data-theme="md3"] .btn.ghost { color: var(--md-sys-color-primary); }
+html[data-theme="md3"] .btn.ghost:hover { color: var(--md-sys-color-primary); }
+html[data-theme="md3"] .btn.danger { color: var(--md-sys-color-on-error-container); }
+html[data-theme="md3"] .btn:disabled {
+  opacity: 1;
+  color: color-mix(in srgb, var(--md-sys-color-on-surface) 38%, transparent);
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent);
+  border-color: transparent; box-shadow: none;
+}
+html[data-theme="md3"] .btn i { font-size: 14px; line-height: 1; }
+
+/* ---------- 开关:拇指行程 + 对勾 + 40px 状态层 ---------- */
+html[data-theme="md3"] .switch i::after {
+  background: var(--ui-switch-thumb);
+  box-shadow: var(--ui-switch-layer-hover);
+  transition: left var(--ui-switch-dur) var(--ui-switch-ease),
+              width var(--ui-switch-dur) var(--ui-switch-ease),
+              height var(--ui-switch-dur) var(--ui-switch-ease),
+              margin var(--ui-switch-dur) var(--ui-switch-ease),
+              background var(--md-sys-motion-duration-short2) linear,
+              box-shadow var(--md-sys-motion-duration-short2) linear;
+}
+html[data-theme="md3"] .switch i::before {
+  content: ""; position: absolute; z-index: 1;
+  top: 50%; left: 16px; width: var(--ui-switch-icon-size); height: var(--ui-switch-icon-size);
+  margin: calc(var(--ui-switch-icon-size) / -2) 0 0 calc(var(--ui-switch-icon-size) / -2);
+  background: var(--ui-switch-thumb-on-c);
+  -webkit-mask: var(--ui-switch-icon) center / var(--ui-switch-icon-size) var(--ui-switch-icon-size) no-repeat;
+  mask: var(--ui-switch-icon) center / var(--ui-switch-icon-size) var(--ui-switch-icon-size) no-repeat;
+  opacity: 0; transform: rotate(-45deg); transform-origin: 50% 50%;
+  transition: opacity var(--md-sys-motion-duration-short1) linear,
+              transform var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard),
+              background var(--md-sys-motion-duration-short2) linear;
+}
+html[data-theme="md3"] .switch input:checked + i::before {
+  left: 32px; opacity: 1; transform: none;
+}
+html[data-theme="md3"] .switch input:checked:hover + i::before { left: 32px; }
+html[data-theme="md3"] .switch input:checked + i::after {
+  background-image: none;                 /* 关掉旧主题写死的紫色对勾 data-URI */
+}
+html[data-theme="md3"] .switch:hover i::after { box-shadow: var(--ui-switch-layer-hover); }
+html[data-theme="md3"] .switch input:active + i::after { box-shadow: var(--ui-switch-layer-press); }
+html[data-theme="md3"] .switch input:disabled + i,
+html[data-theme="md3"] .switch input:disabled ~ span { opacity: 1; }
+html[data-theme="md3"] .switch input:disabled + i { opacity: var(--md-sys-state-disabled-container-opacity); }
+html[data-theme="md3"] .switch input:disabled + i::after { opacity: var(--md-sys-state-disabled-opacity); }
+html[data-theme="md3"] .switch:focus-within i {
+  box-shadow: var(--ui-switch-track-bd), 0 0 0 2px var(--md-sys-color-secondary);
+}
+html[data-theme="md3"] .switch input:checked:focus-within + i {
+  box-shadow: inset 0 0 0 2px transparent, 0 0 0 2px var(--md-sys-color-secondary);
+}
+
+/* ---------- 输入框:filled 文本框(只圆上两角 + 底部指示条) ---------- */
+html[data-theme="md3"] .select,
+html[data-theme="md3"] .input {
+  height: var(--ui-field-h);
+  padding: var(--ui-field-pad);
+  color: var(--md-sys-color-on-surface);
+  background: var(--md-sys-color-surface-container-highest);
+  border: 1px solid transparent;
+  border-bottom: 1px solid var(--md-sys-color-on-surface-variant);
+  border-radius: var(--md-sys-shape-corner-extra-small) var(--md-sys-shape-corner-extra-small) 0 0;
+  transition: background var(--md-sys-motion-duration-short2) linear,
+              box-shadow var(--md-sys-motion-duration-short2) linear;
+}
+html[data-theme="md3"] .select:hover,
+html[data-theme="md3"] .input:hover {
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, var(--md-sys-color-surface-container-highest));
+}
+html[data-theme="md3"] .select:focus,
+html[data-theme="md3"] .input:focus {
+  border-color: transparent;
+  border-bottom-color: var(--md-sys-color-primary);
+  box-shadow: inset 0 -2px 0 0 var(--md-sys-color-primary);
+}
+html[data-theme="md3"] .select.lg { min-width: 320px; height: 56px; }
+html[data-theme="md3"] .input::placeholder { color: var(--md-sys-color-on-surface-variant); }
+html[data-theme="md3"] .input.num { text-align: center; }
+html[data-theme="md3"] option { background: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface); }
+/* ★滑条外观一律交给 extra.css★
+   玩家要求「删掉所有滑动条显示」,extra.css 用 `html[data-theme] input[type=range]`
+   + !important 把轨道/手柄全部透明化。这里**不要再写任何 range 的几何/配色**,
+   否则同优先级下会把隐藏效果盖回去(踩过一次:md3 主题里又出现了轨道和圆点)。 */
+html[data-theme="md3"] .field > label:not(.switch) {
+  font-size: var(--md-sys-typescale-body-small-size);
+  line-height: 20px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+html[data-theme="md3"] .field > label b { color: var(--md-sys-color-primary); }
+
+/* ---------- 分段按钮:首尾胶囊 + 中间直角 + 1px 分隔 ---------- */
+html[data-theme="md3"] .seg-toggle {
+  height: var(--ui-seg-h);
+  border-radius: var(--md-sys-shape-corner-full);
+  overflow: hidden;                      /* 让中间段的直角自然被切掉(M3 只在首尾圆角) */
+  background: transparent;
+}
+html[data-theme="md3"] .seg-toggle button {
+  height: 100%;
+  padding: var(--ui-seg-item-pad);
+  border-radius: 0;
+  color: var(--md-sys-color-on-surface);
+  background: transparent;
+  transition: background-color var(--md-sys-motion-duration-short3) linear,
+              color var(--md-sys-motion-duration-short3) linear;
+}
+html[data-theme="md3"] .seg-toggle button + button { border-left: var(--ui-seg-divider); }
+html[data-theme="md3"] .seg-toggle button:hover { background: var(--ui-seg-item-bg-hover); color: var(--md-sys-color-on-surface); }
+html[data-theme="md3"] .seg-toggle button.on {
+  background: var(--ui-seg-on-bg);
+  color: var(--md-sys-color-on-secondary-container);
+  box-shadow: none;
+  font-weight: var(--md-sys-typescale-label-large-weight);
+}
+html[data-theme="md3"] .seg-toggle button.on:hover { background: var(--ui-seg-on-bg-hover); }
+html[data-theme="md3"] .seg-toggle.wide { height: var(--ui-seg-h); }
+/* 组内按钮的焦点环要往里收,否则会被 overflow 裁掉 */
+html[data-theme="md3"] .seg-toggle button:focus-visible { outline-offset: -3px; }
+
+/* ---------- 标签 / 芯片 ---------- */
+html[data-theme="md3"] .tag,
+html[data-theme="md3"] .rule-chip,
+html[data-theme="md3"] .cast-chip,
+html[data-theme="md3"] .voice-item,
+html[data-theme="md3"] .gender-tag,
+html[data-theme="md3"] .tr-step {
+  border-radius: var(--md-sys-shape-corner-small);
+}
+html[data-theme="md3"] .tag {
+  padding: 2px 8px;
+  font-size: var(--md-sys-typescale-label-medium-size);
+  line-height: 16px;
+  font-weight: var(--md-sys-typescale-label-medium-weight);
+}
+html[data-theme="md3"] .rule-chip,
+html[data-theme="md3"] .cast-chip {
+  min-height: 32px;
+  padding: 0 12px;
+  border-color: var(--md-sys-color-outline-variant);
+  background: transparent;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-label-large-size);
+}
+html[data-theme="md3"] .cast-chip:hover,
+html[data-theme="md3"] .rule-chip:hover {
+  border-color: var(--md-sys-color-outline);
+  color: var(--md-sys-color-on-surface);
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent);
+}
+html[data-theme="md3"] .cast-chip.on {
+  border-color: transparent;
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+html[data-theme="md3"] .rule-chip.good { border-color: transparent; background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
+html[data-theme="md3"] .rule-chip.bad  { border-color: transparent; background: color-mix(in srgb, var(--md-sys-color-error) 16%, transparent); color: var(--md-sys-color-error); }
+html[data-theme="md3"] .rule-chip.ai   { border-color: color-mix(in srgb, var(--md-sys-color-tertiary) 50%, transparent); border-style: dashed; color: var(--md-sys-color-tertiary); }
+
+/* ---------- 面板内的次级块:统一到 surface-container-high ---------- */
+html[data-theme="md3"] .metric-card,
+html[data-theme="md3"] .ls-item,
+html[data-theme="md3"] .stat-row .st,
+html[data-theme="md3"] .diag-bar,
+html[data-theme="md3"] .rules-nav button,
+html[data-theme="md3"] .log-tip,
+html[data-theme="md3"] .hint-box,
+html[data-theme="md3"] .mini-stats > div,
+html[data-theme="md3"] .voice-item,
+html[data-theme="md3"] .pack-row,
+html[data-theme="md3"] .cast-row,
+html[data-theme="md3"] .scan-item,
+html[data-theme="md3"] .manual-preview,
+html[data-theme="md3"] .cur-voice,
+html[data-theme="md3"] .tr-flow,
+html[data-theme="md3"] .theme-box,
+html[data-theme="md3"] .gauge {
+  border-radius: var(--md-sys-shape-corner-medium);
+  border-color: transparent;
+}
+html[data-theme="md3"] .metric-card,
+html[data-theme="md3"] .ls-item,
+html[data-theme="md3"] .stat-row .st,
+html[data-theme="md3"] .rules-nav button,
+html[data-theme="md3"] .mini-stats > div {
+  background: var(--md-sys-color-surface-container-high);
+}
+html[data-theme="md3"] .log-list,
+html[data-theme="md3"] .rules-list,
+html[data-theme="md3"] .tr-out,
+html[data-theme="md3"] .verdict-text {
+  border-radius: var(--md-sys-shape-corner-medium);
+  border-color: transparent;
+  background: var(--md-sys-color-surface-container-lowest);
+}
+html[data-theme="md3"] .rules-nav button.on {
+  background: var(--md-sys-color-secondary-container);
+  border-color: transparent;
+  color: var(--md-sys-color-on-secondary-container);
+}
+html[data-theme="md3"] .rules-nav button:hover { border-color: transparent; background: var(--md-sys-color-surface-container-highest); }
+
+/* ---------- 弹窗:28px + 位移进入(不是缩放) ---------- */
+html[data-theme="md3"] .modal {
+  background: color-mix(in srgb, var(--md-sys-color-scrim) 32%, transparent);
+  backdrop-filter: none;
+}
+html[data-theme="md3"] .dlg {
+  border: 1px solid transparent;
+  border-radius: var(--md-sys-shape-corner-extra-large);
+  background: var(--md-sys-color-surface-container-high);
+  box-shadow: var(--md-sys-elevation-level3);
+  animation: var(--ui-dlg-enter);
+}
+@keyframes md3-dlg-in {
+  from { opacity: 0; transform: translateY(-50px); }
+  to   { opacity: 1; transform: none; }
+}
+html[data-theme="md3"] .dlg-head {
+  padding: var(--ui-dlg-head-pad);
+  border-bottom: 0;
+  font-size: var(--md-sys-typescale-headline-small-size);
+  line-height: var(--md-sys-typescale-headline-small-line-height);
+  font-weight: var(--md-sys-typescale-headline-small-weight);
+  color: var(--md-sys-color-on-surface);
+}
+html[data-theme="md3"] .dlg-head .muted.sm { font-size: var(--md-sys-typescale-body-small-size); font-weight: 400; }
+html[data-theme="md3"] .dlg-body {
+  padding: var(--ui-dlg-body-pad);
+  font-size: var(--md-sys-typescale-body-medium-size);
+  line-height: var(--md-sys-typescale-body-medium-line-height);
+  color: var(--md-sys-color-on-surface-variant);
+}
+html[data-theme="md3"] .dlg-foot {
+  padding: var(--ui-dlg-foot-pad);
+  border-top: 0;
+  gap: 8px;
+}
+html[data-theme="md3"] .dlg.wide { width: min(860px, calc(100vw - 48px)); }
+html[data-theme="md3"] .dlg.narrow { width: min(430px, calc(100vw - 48px)); }
+
+/* ---------- toast = inverse-surface ---------- */
+html[data-theme="md3"] .toast {
+  color: var(--md-sys-color-inverse-on-surface);
+  background: var(--md-sys-color-inverse-surface);
+  border: 1px solid transparent;
+  border-left: 0;
+  border-radius: var(--md-sys-shape-corner-extra-small);
+  box-shadow: var(--md-sys-elevation-level3);
+  font-size: var(--md-sys-typescale-body-medium-size);
+  line-height: var(--md-sys-typescale-body-medium-line-height);
+}
+html[data-theme="md3"] .toast.err { border-left: 0; color: var(--md-sys-color-on-error-container); background: var(--md-sys-color-error-container); }
+
+/* ---------- 焦点环:3px secondary + 外偏 2px(§5.4) ---------- */
+html[data-theme="md3"] :where(button, a, input, select, textarea, [tabindex]):focus { outline: none; }
+html[data-theme="md3"] :where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: var(--ui-focus-outline);
+  outline-offset: var(--ui-focus-offset);
+  box-shadow: none;
+}
+html[data-theme="md3"] .btn:focus-visible,
+html[data-theme="md3"] .icon-btn:focus-visible,
+html[data-theme="md3"] .nav-item:focus-visible,
+html[data-theme="md3"] .theme-pick button:focus-visible,
+html[data-theme="md3"] .cast-chip:focus-visible,
+html[data-theme="md3"] .rule-chip:focus-visible,
+html[data-theme="md3"] .tag:focus-visible { outline: var(--ui-focus-outline); outline-offset: 2px; }
+html[data-theme="md3"] .seg-toggle button:focus-visible { outline: var(--ui-focus-outline); outline-offset: -3px; }
+/* 文本类控件用 M3 的"指示条变粗"表达焦点,不再叠一圈光晕 */
+html[data-theme="md3"] .input:focus-visible,
+html[data-theme="md3"] .select:focus-visible { outline: none; }
+html[data-theme="md3"] .search input:focus-visible { outline: none; }
+html[data-theme="md3"] .switch input:focus-visible + i { outline: none; }
+
+/* ---------- 滚动条 ---------- */
+html[data-theme="md3"] ::-webkit-scrollbar { width: 8px; height: 8px; }
+html[data-theme="md3"] ::-webkit-scrollbar-thumb {
+  background: var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-shape-corner-full);
+}
+html[data-theme="md3"] ::-webkit-scrollbar-thumb:hover { background: var(--md-sys-color-outline); }
+
+/* ---------- 杂项:徽标、进度、kbd、空状态 ---------- */
+html[data-theme="md3"] kbd {
+  background: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-on-surface-variant);
+  border-radius: var(--md-sys-shape-corner-extra-small);
+}
+html[data-theme="md3"] .launch-bar {
+  border: 1px solid transparent;
+  border-radius: var(--md-sys-shape-corner-medium);
+  background: var(--md-sys-color-surface-container);
+}
+html[data-theme="md3"] .lb-icon,
+html[data-theme="md3"] .gc-icon,
+html[data-theme="md3"] .si-icon,
+html[data-theme="md3"] .mi-icon,
+html[data-theme="md3"] .cur-voice .cv-icon {
+  border-radius: var(--md-sys-shape-corner-small);
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+}
+html[data-theme="md3"] .empty-state,
+html[data-theme="md3"] .add-card {
+  border: 1px dashed var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-shape-corner-medium);
+  background: transparent;
+}
+html[data-theme="md3"] .add-plus { color: var(--md-sys-color-primary); }
+html[data-theme="md3"] .tabs { border-bottom: 1px solid var(--md-sys-color-outline-variant); padding: 0 24px; }
+html[data-theme="md3"] .tab { padding: 12px 16px; color: var(--md-sys-color-on-surface-variant); border-bottom-width: 3px; }
+html[data-theme="md3"] .tab.active { color: var(--md-sys-color-primary); border-bottom-color: var(--md-sys-color-primary); }
+html[data-theme="md3"] .diag-bar { font-size: var(--md-sys-typescale-title-small-size); font-weight: var(--md-sys-typescale-title-small-weight); }
+html[data-theme="md3"] .log-list { padding: 8px 12px; }
+html[data-theme="md3"] .log-row .lm { color: var(--md-sys-color-on-surface-variant); }
+html[data-theme="md3"] .log-row.game .lm { color: var(--md-sys-color-on-surface); }
+html[data-theme="md3"] .log-row .lv-tag {
+  border-radius: var(--md-sys-shape-corner-extra-small);
+  border-color: var(--md-sys-color-outline-variant);
+  color: var(--md-sys-color-on-surface-variant);
+}
+html[data-theme="md3"] .wave-label {
+  background: color-mix(in srgb, var(--md-sys-color-surface) 78%, transparent);
+  color: var(--md-sys-color-on-surface-variant);
+  border-radius: var(--md-sys-shape-corner-full);
+}
+html[data-theme="md3"] .bb-metric span { color: var(--md-sys-color-on-surface-variant); }

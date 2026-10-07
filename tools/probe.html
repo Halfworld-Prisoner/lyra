@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>probe</title>
+<style>
+  html, body { margin: 0; background: #222; font: 12px Consolas, monospace; }
+  iframe { width: 1500px; height: 950px; border: 0; display: block; }
+  html.sized body { display: flex; justify-content: center; align-items: flex-start; height: 100vh; }
+  html.sized iframe { height: 100vh; box-shadow: 0 0 0 1px #555; }
+  #err { position: fixed; left: 8px; bottom: 8px; z-index: 9; max-width: 1400px;
+         padding: 6px 10px; border-radius: 6px; background: #b00020; color: #fff;
+         white-space: pre-wrap; }
+  #ok { position: fixed; right: 8px; bottom: 8px; z-index: 9;
+        padding: 6px 10px; border-radius: 6px; background: #0a7d43; color: #fff; }
+</style>
+</head>
+<body>
+<iframe id="f" src="/"></iframe>
+<div id="err" style="display:none"></div>
+<div id="ok">…</div>
+<script>
+const Q = new URLSearchParams(location.search);
+const view = Q.get('v') || '';
+const theme = Q.get('t') || '';
+const extra = Q.get('x') || '';
+const f = document.getElementById('f');
+/* ?w=<px> 让 iframe 变窄(测窄布局);?h= 可覆盖高度 */
+const W = parseInt(Q.get('w') || '0', 10);
+if (W > 0) {
+  document.documentElement.classList.add('sized');
+  f.style.width = W + 'px';
+  const H = parseInt(Q.get('h') || '0', 10);
+  if (H > 0) { f.style.height = H + 'px'; document.documentElement.classList.remove('sized'); }
+}
+function fail(msg) {
+  const e = document.getElementById('err');
+  e.style.display = '';
+  e.textContent = 'JS 出错: ' + msg;
+}
+window.addEventListener('error', (ev) => fail(ev.message));
+window.addEventListener('unhandledrejection', (ev) => fail('Promise 未捕获:' + (ev.reason && ev.reason.message || ev.reason)));
+f.onload = () => {
+  const w = f.contentWindow, d = f.contentDocument;
+  try {
+    if (theme) { w.localStorage.setItem('ly_theme', theme); }
+    setTimeout(() => {
+      try {
+        if (view) {
+          const b = d.querySelector('.nav-item[data-view="' + view + '"]');
+          if (b) b.click();
+        }
+        if (theme) {
+          const tb = d.querySelector('#themePick button[data-theme="' + theme + '"]');
+          if (tb) tb.click();
+        }
+        if (extra === 'packs') { const p = d.getElementById('openPacks'); if (p) p.click(); }
+        if (extra === 'logdialog') {
+          const rows = d.querySelectorAll('.log-row.clickable');
+          if (rows.length) rows[0].click();
+          else if (w.logVerdict) w.logVerdict({ text: '「嗯……？是你啊。」', level: 'game', msg: '「嗯……？是你啊。」' });
+        }
+      } catch (e) { fail('交互失败 ' + e.message); }
+      setTimeout(() => {
+        const err = w.__JSERR;
+        const games = d.querySelectorAll('#games .game-card').length;
+        const voices = d.querySelectorAll('#voiceOffline .voice-item, #voiceSapi .voice-item').length;
+        const navs = d.querySelectorAll('.nav-item').length;
+        const LY = w.__LY || {};
+        const dbg = 'store=' + (w.__LY ? 'yes' : 'NO')
+          + ' renderers=' + ((LY.renderers || []).length)
+          + ' view=' + (LY.view || '?')
+          + ' gamesState=' + (((LY.S || {}).games || []).length);
+        const info = 'nav=' + navs + ' 卡片=' + games + ' 声音=' + voices + ' | ' + dbg;
+        if (err) { fail(err + '  [' + info + ']'); document.getElementById('ok').style.display = 'none'; }
+        else if (!navs) { fail('模块没加载起来(导航都没渲染)  [' + info + ']'); }
+        else { document.getElementById('ok').textContent = 'no-js-error · ' + view + ' · ' + theme + ' · ' + info; }
+      }, 1600);
+    }, 900);
+  } catch (e) { fail(e.message); }
+};
+</script>
+</body>
+</html>

@@ -1,0 +1,62 @@
+/* 资源脚本:图标 + 清单 + 内嵌负载(由 build.ps1 生成 payload.zip)+ 版本信息 */
+#include <windows.h>
+
+#define IDI_APPICON 101
+#define IDR_WEBVIEW2  106
+#define IDR_UI_HTML   107
+#define IDR_LOGO_PNG  108
+#define IDR_WEBVIEW2  106
+#define IDR_UI_HTML   107
+#define IDR_LOGO_PNG  108
+#define IDR_PAYLOAD 102
+#define IDR_RUNTIME 103
+#define IDR_PLAYER  104
+#define IDR_UNINSTALL 105
+
+IDI_APPICON ICON "icon.ico"
+IDR_UI_HTML   RCDATA "ui.html"
+IDR_LOGO_PNG  RCDATA "icon-preview-256.png"
+IDR_WEBVIEW2  RCDATA "WebView2Loader.dll"
+
+/* 24 = RT_MANIFEST,1 = CREATEPROCESS_MANIFEST_RESOURCE_ID */
+1 24 "app.manifest"
+
+/* 应用负载(我们的 Python 后端 + 网页前端,打成 zip 内嵌进 exe) */
+IDR_PAYLOAD RCDATA "payload.zip"
+
+/* 便携运行环境(嵌入式 Python 3.13 + 全部依赖),安装时直接解压,无需联网 */
+IDR_RUNTIME RCDATA "runtime.zip"
+
+/* 窗口宿主(原生窗口内嵌网页;安装到安装目录,桌面创建快捷方式) */
+IDR_PLAYER RCDATA "player.exe"
+
+/* 卸载器(安装时释放到安装目录,并在注册表登记卸载项) */
+IDR_UNINSTALL RCDATA "uninstall.exe"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     2,0,0,0
+PRODUCTVERSION  2,0,0,0
+FILEFLAGSMASK   0x3fL
+FILEFLAGS       0x0L
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_APP
+FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "080404b0"
+        BEGIN
+            VALUE "CompanyName",      "Lyra"
+            VALUE "FileDescription",  "Lyra 安装程序"
+            VALUE "FileVersion",      "2.0.0.0"
+            VALUE "InternalName",     "LingYueReaderSetup"
+            VALUE "OriginalFilename", "Lyra 安装程序.exe"
+            VALUE "ProductName",      "Lyra"
+            VALUE "ProductVersion",   "2.0.0.0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x804, 1200
+    END
+END

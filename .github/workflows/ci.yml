@@ -1,0 +1,56 @@
+name: check
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+
+jobs:
+  python-syntax:
+    name: Python 语法与导入检查
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: 编译所有 Python 文件
+        run: python -m compileall -q core webapp tools
+      - name: 前端模块粗检(括号配对 / 语法)
+        run: |
+          python - <<'PY'
+          import pathlib, re, sys
+          bad = []
+          for p in pathlib.Path('webapp/static').rglob('*'):
+              if p.suffix not in ('.js', '.css', '.html'):
+                  continue
+              t = p.read_text(encoding='utf-8')
+              if p.suffix == '.css' and t.count('{') != t.count('}'):
+                  bad.append(f'{p}: 花括号不配对')
+              if p.suffix == '.js':
+                  for ch in '()[]{}':
+                      pass
+                  if t.count('(') != t.count(')'):
+                      bad.append(f'{p}: 圆括号不配对')
+          for b in bad:
+              print(b)
+          sys.exit(1 if bad else 0)
+          PY
+
+  c-syntax:
+    name: C/C++ 安装器语法检查
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 准备 MinGW 与 WebView2 头文件占位
+        shell: pwsh
+        run: |
+          choco install mingw --no-progress -y
+          # 安装器源码依赖 WebView2 SDK 头文件;CI 里只做语法检查,
+          # 真正的打包见 docs/DEVELOPMENT.md 的构建章节。
+          Write-Host "已安装 MinGW"
+      - name: 语法检查(仅编译到语法层,不需要链接)
+        shell: pwsh
+        run: |
+          gcc -fsyntax-only -I installer/compat installer/uninstall.c
+          Write-Host "uninstall.c 语法 OK"

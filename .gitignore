@@ -1,0 +1,56 @@
+# ---- 运行与构建产物(体积大,走 Releases,不进仓库)----
+*.exe
+*.zip
+*.7z
+*.msi
+installer/build/
+installer/runtime/
+runtime/
+payload/
+voices/*
+!voices/README.md
+build/
+dist/
+out/
+
+# ---- 本机配置(可能含 API Key!)----
+config.json
+config.local.json
+install.log
+*.log
+server.port
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---- C / C++ / C# 编译产物 ----
+*.o
+*.obj
+*.res
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.dll.bak
+bin/
+obj/
+
+# ---- 编辑器与系统 ----
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+Thumbs.db
+desktop.ini
+*.tmp
+*.bak
+*.bak_*
+~$*

@@ -1,0 +1,345 @@
+/* tokens.css
+   由 style.css 拆分而来(内容未改写)。
+   设计令牌:颜色 / 圆角 / 阴影 / 动效。改主题色先看这里。 */
+
+/* 基础配色(暗夜主题就是这一套;其余主题在 themes.css 里覆盖同名变量) */
+
+:root {
+  --bg:        #0d0f14;
+  --side:      #12151d;
+  --panel:     #161a23;
+  --panel-2:   #1b202b;
+  --line:      rgba(255, 255, 255, .07);
+  --line-2:    rgba(255, 255, 255, .12);
+  --text:      #e9edf5;
+  --muted:     #8b94a8;
+  --muted-2:   #6b7488;
+  --accent:    #6d5efc;
+  --accent-2:  #4aa8ff;
+  --ok:        #3ddc97;
+  --warn:      #ffb454;
+  --danger:    #ff6b81;
+  --radius:    14px;
+  --radius-sm: 10px;
+  --shadow:    0 8px 24px rgba(0, 0, 0, .35);
+  --soft:      rgba(255, 255, 255, .035);
+  --soft-2:    rgba(255, 255, 255, .06);
+  --stage:     radial-gradient(120% 120% at 50% 0%, #131824 0%, #0a0d13 100%);
+  --overlay:   rgba(5, 7, 11, .94);
+  --bar-bg:    rgba(18, 21, 29, .96);
+  --toast-bg:  rgba(27, 32, 43, .97);
+  --md-track:  rgba(255, 255, 255, .10);
+  --md-outline: rgba(255, 255, 255, .26);
+  --md-outline-hover: rgba(255, 255, 255, .42);
+  --md-handle: #c3cad8;
+  --ease:      cubic-bezier(.22, .61, .36, 1);
+}
+
+/* ================================================================
+   v3 基础修补:以前有几个变量**从来没定义过**,相关样式其实一直是失效的
+   （--txt / --txt-2 / --input / --accent-soft）——
+   「当前选中」的规则项背景是透明的、日志正文颜色也没生效,看着就是"灰成一片"。
+   ================================================================ */
+:root {
+  --txt:       #eef2f9;
+  --txt-2:     #c8cfdd;
+  --input:     rgba(255, 255, 255, .045);
+  --accent-soft: rgba(109, 94, 252, .16);
+}
+
+/* ================================================================
+   L0 · Material 3 系统常量(与主题无关,谁用谁取)
+   ----------------------------------------------------------------
+   数值全部来自 Google 官方 token 源码:
+     shape   material-web tokens/versions/v0_192/_md-sys-shape.scss
+     state   material-web tokens/versions/v0_192/_md-sys-state.scss
+     motion  material-web tokens/versions/v0_192/_md-sys-motion.scss
+     elev    material-web tokens/versions/v0_192/_md-sys-elevation.scss
+             + elevation/internal/_elevation.scss(key 30% / ambient 15% 两层)
+     type    material-web tokens/versions/v0_192/_md-sys-typescale.scss
+   只有 html[data-theme="md3"] 会引用它们,所以放在这里不影响其它主题。
+   ================================================================ */
+:root {
+  --md-sys-color-shadow: #000;
+
+  /* 形状比例(px) */
+  --md-sys-shape-corner-none: 0px;
+  --md-sys-shape-corner-extra-small: 4px;
+  --md-sys-shape-corner-small: 8px;
+  --md-sys-shape-corner-medium: 12px;
+  --md-sys-shape-corner-large: 16px;
+  --md-sys-shape-corner-extra-large: 28px;
+  --md-sys-shape-corner-full: 9999px;
+
+  /* 状态层不透明度(占内容色的比例) */
+  --md-sys-state-hover-state-layer-opacity: .08;
+  --md-sys-state-focus-state-layer-opacity: .12;
+  --md-sys-state-pressed-state-layer-opacity: .12;
+  --md-sys-state-dragged-state-layer-opacity: .16;
+  --md-sys-state-disabled-opacity: .38;
+  --md-sys-state-disabled-container-opacity: .12;
+
+  /* 高度:6 级,每级两层阴影(key 30% + ambient 15%) */
+  --md-sys-elevation-level0: none;
+  --md-sys-elevation-level1:
+    0 1px 2px 0 color-mix(in srgb, var(--md-sys-color-shadow) 30%, transparent),
+    0 1px 3px 1px color-mix(in srgb, var(--md-sys-color-shadow) 15%, transparent);
+  --md-sys-elevation-level2:
+    0 1px 2px 0 color-mix(in srgb, var(--md-sys-color-shadow) 30%, transparent),
+    0 2px 6px 2px color-mix(in srgb, var(--md-sys-color-shadow) 15%, transparent);
+  --md-sys-elevation-level3:
+    0 1px 3px 0 color-mix(in srgb, var(--md-sys-color-shadow) 30%, transparent),
+    0 4px 8px 3px color-mix(in srgb, var(--md-sys-color-shadow) 15%, transparent);
+  --md-sys-elevation-level4:
+    0 2px 3px 0 color-mix(in srgb, var(--md-sys-color-shadow) 30%, transparent),
+    0 6px 10px 4px color-mix(in srgb, var(--md-sys-color-shadow) 15%, transparent);
+  --md-sys-elevation-level5:
+    0 4px 4px 0 color-mix(in srgb, var(--md-sys-color-shadow) 30%, transparent),
+    0 8px 12px 6px color-mix(in srgb, var(--md-sys-color-shadow) 15%, transparent);
+
+  /* 动效:时长(ms) */
+  --md-sys-motion-duration-short1: 50ms;
+  --md-sys-motion-duration-short2: 100ms;
+  --md-sys-motion-duration-short3: 150ms;
+  --md-sys-motion-duration-short4: 200ms;
+  --md-sys-motion-duration-medium1: 250ms;
+  --md-sys-motion-duration-medium2: 300ms;
+  --md-sys-motion-duration-medium3: 350ms;
+  --md-sys-motion-duration-medium4: 400ms;
+  --md-sys-motion-duration-long1: 450ms;
+  --md-sys-motion-duration-long2: 500ms;
+  --md-sys-motion-duration-long4: 600ms;
+  /* 动效:缓动曲线。注意真正的 M3 emphasized 是两段曲线,CSS 的 cubic-bezier
+     表达不了,官方 web token 本身就用 standard 曲线代替($easing-emphasized:
+     $easing-standard),所以这里也照抄 standard。 */
+  --md-sys-motion-easing-standard: cubic-bezier(.2, 0, 0, 1);
+  --md-sys-motion-easing-standard-accelerate: cubic-bezier(.3, 0, 1, 1);
+  --md-sys-motion-easing-standard-decelerate: cubic-bezier(0, 0, 0, 1);
+  --md-sys-motion-easing-emphasized: cubic-bezier(.2, 0, 0, 1);
+  --md-sys-motion-easing-emphasized-accelerate: cubic-bezier(.3, 0, .8, .15);
+  --md-sys-motion-easing-emphasized-decelerate: cubic-bezier(.05, .7, .1, 1);
+  --md-sys-motion-easing-legacy: cubic-bezier(.4, 0, .2, 1);
+
+  /* 字体:Roboto 无 CJK 字形,必须回退到系统中文黑体 */
+  --md-ref-typeface-plain:
+    Roboto, "Noto Sans SC", "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei UI", "Microsoft YaHei", "Source Han Sans SC",
+    "Noto Sans CJK SC", system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  /* 字体比例(px / 行高 / 字重 / 字距) */
+  --md-sys-typescale-headline-small-size: 24px;
+  --md-sys-typescale-headline-small-line-height: 32px;
+  --md-sys-typescale-headline-small-weight: 400;
+  --md-sys-typescale-title-large-size: 22px;
+  --md-sys-typescale-title-large-line-height: 28px;
+  --md-sys-typescale-title-large-weight: 400;
+  --md-sys-typescale-title-medium-size: 16px;
+  --md-sys-typescale-title-medium-line-height: 24px;
+  --md-sys-typescale-title-medium-weight: 500;
+  --md-sys-typescale-title-medium-tracking: .15px;
+  --md-sys-typescale-title-small-size: 14px;
+  --md-sys-typescale-title-small-line-height: 20px;
+  --md-sys-typescale-title-small-weight: 500;
+  --md-sys-typescale-title-small-tracking: .1px;
+  --md-sys-typescale-body-large-size: 16px;
+  --md-sys-typescale-body-large-line-height: 24px;
+  --md-sys-typescale-body-large-weight: 400;
+  --md-sys-typescale-body-large-tracking: .5px;
+  --md-sys-typescale-body-medium-size: 14px;
+  --md-sys-typescale-body-medium-line-height: 20px;
+  --md-sys-typescale-body-medium-weight: 400;
+  --md-sys-typescale-body-medium-tracking: .25px;
+  --md-sys-typescale-body-small-size: 12px;
+  --md-sys-typescale-body-small-line-height: 16px;
+  --md-sys-typescale-body-small-weight: 400;
+  --md-sys-typescale-body-small-tracking: .4px;
+  --md-sys-typescale-label-large-size: 14px;
+  --md-sys-typescale-label-large-line-height: 20px;
+  --md-sys-typescale-label-large-weight: 500;
+  --md-sys-typescale-label-large-tracking: .1px;
+  --md-sys-typescale-label-medium-size: 12px;
+  --md-sys-typescale-label-medium-line-height: 16px;
+  --md-sys-typescale-label-medium-weight: 500;
+  --md-sys-typescale-label-medium-tracking: .5px;
+  --md-sys-typescale-label-small-size: 11px;
+  --md-sys-typescale-label-small-line-height: 16px;
+  --md-sys-typescale-label-small-weight: 500;
+  --md-sys-typescale-label-small-tracking: .5px;
+}
+
+/* ================================================================
+   L2 · 组件"皮肤"变量 —— 组件 CSS 只消费这一层,不写主题判断
+   ----------------------------------------------------------------
+   这里的默认值 = 项目现在的观感(dark/light/sepia 三个主题共用,视觉不变);
+   html[data-theme="md3"] 里再覆盖成 Material 3 的值(见 themes.css)。
+   想局部试 M3:给任意容器加 data-theme="md3" 即可(属性选择器会命中)。
+   ================================================================ */
+:root {
+  --ui-font: "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+  --ui-body-size: 13px;
+  --ui-body-line: 1.6;
+
+  /* 按钮 */
+  --ui-btn-h: 34px;
+  --ui-btn-h-sm: 30px;
+  --ui-btn-pad: 15px;
+  --ui-btn-pad-sm: 12px;
+  --ui-btn-pad-icon: 15px;
+  --ui-btn-radius: var(--radius-sm);
+  --ui-btn-weight: 400;
+  --ui-btn-gap: 7px;
+  --ui-btn-icon-size: 11px;
+  --ui-btn-font-size: inherit;
+  --ui-btn-letter: normal;
+  --ui-btn-bd: 1px solid var(--line-2);
+  --ui-btn-bd-hover: 1px solid rgba(255, 255, 255, .18);
+  --ui-btn-bg: var(--panel-2);
+  --ui-btn-bg-hover: #232a37;
+  --ui-btn-bg-active: #232a37;
+  --ui-btn-fg: var(--text);
+  --ui-btn-fg-hover: var(--text);
+  --ui-btn-sd: none;
+  --ui-btn-sd-hover: none;
+  --ui-btn-sd-active: none;
+  --ui-btn-lift: translateY(1px);
+
+  --ui-btn-primary-bg: linear-gradient(135deg, var(--accent), var(--accent-2));
+  --ui-btn-primary-bg-hover: linear-gradient(135deg, var(--accent), var(--accent-2));
+  --ui-btn-primary-bg-active: linear-gradient(135deg, var(--accent), var(--accent-2));
+  --ui-btn-primary-fg: #fff;
+  --ui-btn-primary-bd: 1px solid transparent;
+  --ui-btn-primary-sd: 0 6px 16px rgba(109, 94, 252, .28);
+  --ui-btn-primary-sd-hover: 0 8px 22px rgba(109, 94, 252, .4);
+  --ui-btn-primary-sd-active: 0 6px 16px rgba(109, 94, 252, .28);
+  --ui-btn-primary-filter: none;
+
+  --ui-btn-ghost-bg: transparent;
+  --ui-btn-ghost-bg-hover: rgba(255, 255, 255, .05);
+  --ui-btn-ghost-bg-active: rgba(255, 255, 255, .05);
+  --ui-btn-ghost-fg: var(--muted);
+  --ui-btn-ghost-fg-hover: var(--text);
+  --ui-btn-ghost-bd: 1px solid var(--line-2);
+  --ui-btn-ghost-bd-hover: 1px solid var(--line-2);
+
+  --ui-btn-danger-bg: linear-gradient(135deg, #ff6b81, #ef5350);
+  --ui-btn-danger-bg-hover: linear-gradient(135deg, #ff6b81, #ef5350);
+  --ui-btn-danger-bg-active: linear-gradient(135deg, #ff6b81, #ef5350);
+  --ui-btn-danger-fg: #fff;
+  --ui-btn-danger-bd: 1px solid #ef5350;
+  --ui-btn-danger-filter: brightness(1.08);
+  --ui-btn-danger-weight: 600;
+
+  /* 输入 / 下拉 */
+  --ui-field-h: 34px;
+  --ui-field-pad: 0 10px;
+  --ui-field-bg: var(--panel-2);
+  --ui-field-fg: var(--text);
+  --ui-field-bd: 1px solid var(--line);
+  --ui-field-bd-bottom: 1px solid var(--line);
+  --ui-field-radius: var(--radius-sm);
+  --ui-field-ph: var(--muted-2);
+  --ui-field-focus-bd-c: rgba(109, 94, 252, .65);
+  --ui-field-focus-bd-bottom-c: var(--line);
+  --ui-field-focus-ring: 0 0 0 3px rgba(109, 94, 252, .12);
+
+  /* 开关 */
+  --ui-switch-w: 52px;
+  --ui-switch-h: 32px;
+  --ui-switch-radius: 16px;
+  --ui-switch-track: var(--md-track);
+  --ui-switch-track-bd: inset 0 0 0 2px var(--md-outline);
+  --ui-switch-track-bd-hover: inset 0 0 0 2px var(--md-outline-hover);
+  --ui-switch-track-on: var(--accent);
+  --ui-switch-thumb: var(--md-handle);
+  --ui-switch-thumb-on: #fff;
+  --ui-switch-thumb-off-w: 16px;
+  --ui-switch-thumb-off-l: 8px;
+  --ui-switch-thumb-on-w: 24px;
+  --ui-switch-thumb-on-l: 24px;
+  --ui-switch-thumb-hover-w: 20px;
+  --ui-switch-thumb-hover-l: 6px;
+  --ui-switch-thumb-hover-on-w: 28px;
+  --ui-switch-thumb-hover-on-l: 22px;
+  --ui-switch-ease: cubic-bezier(.2, 0, 0, 1);
+  --ui-switch-dur: .2s;
+  --ui-switch-thumb-on-c: #fff;
+  --ui-switch-thumb-hover-c: var(--md-handle);
+  --ui-switch-thumb-hover-on-c: #fff;
+  --ui-switch-thumb-press-w: 20px;
+  --ui-switch-thumb-press-l: 6px;
+  --ui-switch-thumb-press-on-w: 28px;
+  --ui-switch-thumb-press-on-l: 22px;
+  --ui-switch-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M9.6 16.2 5.4 12l-1.4 1.4 5.6 5.6 12-12L20.2 5.6z'/%3E%3C/svg%3E");
+  --ui-switch-icon-color: var(--accent);
+  --ui-switch-icon-size: 15px;
+  --ui-switch-layer-hover: 0 0 0 0 transparent;
+  --ui-switch-layer-press: 0 0 0 0 transparent;
+
+  /* 面板 / 卡片 */
+  --ui-panel-bg: var(--panel);
+  --ui-panel-bd: 1px solid var(--line);
+  --ui-panel-radius: var(--radius);
+  --ui-panel-sd: none;
+  --ui-panel-pad: 15px 16px;
+  --ui-card-bg: var(--panel);
+  --ui-card-bg-hover: var(--panel);
+  --ui-card-bg-active: var(--panel);
+  --ui-card-bd: 1px solid var(--line);
+  --ui-card-bd-active: 1px solid rgba(109, 94, 252, .6);
+  --ui-card-radius: var(--radius);
+  --ui-card-sd: none;
+  --ui-card-sd-hover: var(--shadow);
+  --ui-card-lift: translateY(-2px);
+
+  /* 弹窗 */
+  --ui-dlg-bg: var(--panel);
+  --ui-dlg-bd: 1px solid var(--line-2);
+  --ui-dlg-radius: var(--radius);
+  --ui-dlg-sd: 0 24px 60px rgba(0, 0, 0, .55);
+  --ui-dlg-head-pad: 13px 16px;
+  --ui-dlg-body-pad: 16px;
+  --ui-dlg-foot-pad: 13px 16px;
+  --ui-dlg-enter: md3-pop .16s ease;
+
+  /* toast */
+  --ui-toast-bg: var(--toast-bg);
+  --ui-toast-fg: var(--text);
+  --ui-toast-bd: 1px solid var(--line-2);
+  --ui-toast-radius: var(--radius-sm);
+  --ui-toast-sd: var(--shadow);
+  --ui-toast-accent: var(--accent);
+  --ui-toast-pad: 10px 14px;
+  --ui-toast-font-size: 12.5px;
+
+  /* 侧栏导航项 */
+  --ui-nav-radius: var(--radius-sm);
+  --ui-nav-bg-hover: var(--soft-2);
+  --ui-nav-bg-active: transparent;
+  --ui-nav-fg: var(--muted);
+  --ui-nav-fg-active: #fff;
+  --ui-nav-hover-shift: 14px;
+  --ui-nav-pad: 9px 11px;
+
+  /* 分段按钮 */
+  --ui-seg-h: auto;
+  --ui-seg-pad: 2px;
+  --ui-seg-radius: 10px;
+  --ui-seg-bg: var(--soft-2);
+  --ui-seg-bd: 1px solid var(--line);
+  --ui-seg-item-radius: 8px;
+  --ui-seg-item-bg: transparent;
+  --ui-seg-item-bg-hover: transparent;
+  --ui-seg-item-fg: var(--muted);
+  --ui-seg-on-bg: linear-gradient(135deg, var(--accent), var(--accent-2));
+  --ui-seg-on-bg-hover: linear-gradient(135deg, var(--accent), var(--accent-2));
+  --ui-seg-on-fg: #fff;
+  --ui-seg-on-sd: 0 4px 12px rgba(109, 94, 252, .28);
+  --ui-seg-divider: none;
+  --ui-seg-item-pad: 6px 12px;
+  --ui-seg-weight: 400;
+
+  /* 焦点环 */
+  --ui-focus-ring: 0 0 0 3px rgba(109, 94, 252, .12);
+  --ui-focus-outline: none;
+  --ui-focus-offset: 0;
+}
