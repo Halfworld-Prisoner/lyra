@@ -15,6 +15,8 @@ r"""文本翻译(把游戏里的原文实时换成简体中文)。
 """
 import json
 import os
+import io
+import os
 import re
 import threading
 import time
@@ -134,8 +136,41 @@ _T2S = {
 T2S = str.maketrans(_T2S)
 
 
+_FULL_T2S = None
+
+
+def _load_full_t2s():
+    """加载 OpenCC 的完整简繁表(core/data/t2s.txt)。
+
+    只带一张内置小表是不够的 —— 实测「格蘭特尼」「奧斯卡」这种名字会漏转,
+    因为表里没有 蘭/奧。完整表 3000+ 条,覆盖常用繁体字。
+    """
+    global _FULL_T2S
+    if _FULL_T2S is not None:
+        return _FULL_T2S
+    table = {}
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        path = os.path.join(here, "data", "t2s.txt")
+        if os.path.isfile(path):
+            for ln in io.open(path, encoding="utf-8"):
+                parts = ln.split()
+                if len(parts) >= 2:
+                    table[parts[0]] = parts[1]
+    except Exception:
+        table = {}
+    _FULL_T2S = table
+    return table
+
+
 def to_simplified(s: str) -> str:
-    return (s or "").translate(T2S)
+    """繁体 → 简体(优先完整表,失败退回内置小表)。"""
+    if not s:
+        return s or ""
+    full = _load_full_t2s()
+    if full:
+        return "".join(full.get(ch, T2S.get(ch, ch)) for ch in s)
+    return s.translate(T2S)
 
 
 def needs_translation(text: str) -> bool:
@@ -149,6 +184,133 @@ def needs_translation(text: str) -> bool:
         return bool(_ASCII_WORD.search(t))    # 没有汉字:英文才翻
     # 有汉字:看有没有繁体字(转一遍不相等就说明含繁体)
     return to_simplified(t) != t
+
+
+# 所有"非文字"字符都算符号:标点、括号、引号、音符星号、颜文字零件、拉丁字母与数字**不算**
+_SYM_ONLY = re.compile(r"[^\w\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]", re.UNICODE)
+
+
+def _symbols(text: str) -> dict:
+    """统计一句里的符号(去掉空白),用于校验译文有没有丢符号。"""
+    out = {}
+    for ch in (text or ""):
+        if ch.isspace():
+            continue
+        if _SYM_ONLY.match(ch):
+            out[ch] = out.get(ch, 0) + 1
+    return out
+
+
+def _missing_symbols(src: str, out: str) -> list:
+    """译文里少了 / 少了几次的符号。返回 [(符号, 原次数, 译次数), ...]"""
+    a, b = _symbols(src), _symbols(out)
+    bad = []
+    for ch, n in a.items():
+        m = b.get(ch, 0)
+        if m < n:
+            bad.append((ch, n, m))
+    return bad
+
+
+# ★符号占位符★
+# 光靠提示词约束 AI 是不够的(实测:标点、引号、破折号仍会被改写或吞掉)。
+# 做法:把原文里的符号换成 [[0]] [[1]] … 这样的记号再交给 AI —— 记号是"单词",
+# 模型不会去翻译它;拿回来按编号还原成原符号。这样符号**在机制上不可能丢**。
+_TOK_RE = re.compile(r"\[\[(\d+)\]\]")
+_TOK_L, _TOK_R = "[[", "]]"
+
+
+def _protect_symbols(text: str):
+    """(带占位符的文本, [原符号, ...])"""
+    out, marks = [], []
+    for ch in text or "":
+        if ch.isspace() or not _SYM_ONLY.match(ch):
+            out.append(ch)
+            continue
+        marks.append(ch)
+        out.append("%s%d%s" % (_TOK_L, len(marks) - 1, _TOK_R))
+    return "".join(out), marks
+
+
+def _plain(text: str) -> str:
+    """只留"真正的字"(字母/数字/汉字/假名/韩文),用来做对齐。"""
+    return "".join(ch for ch in (text or "") if not _SYM_ONLY.match(ch))
+
+
+def _restore_symbols(text: str, marks: list, src: str = "") -> str:
+    """把符号按**原文顺序**放回译文正确位置(text=模型返回的译文, src=原文)。
+
+    ★丢弃模型给的记号位置★:实测模型会把记号弄乱、丢掉或重复,
+    所以先把它返回的记号全删掉,再用"去掉符号后的文字"与原文做对齐(锚点取自原文),
+    逐个把符号插回去 —— 结果确定,与模型怎么摆记号无关。
+    """
+    if not marks:
+        return text
+    out = _TOK_RE.sub("", text or "")
+    base = src or ""
+    if not base:
+        return out + "".join(marks)
+    # ① 锚点:原文里每个符号的"前面有多少个真字"
+    src_plain, anchors = [], []
+    for ch in base:
+        if ch.isspace():
+            continue
+        if _SYM_ONLY.match(ch):
+            anchors.append(len(src_plain))
+        else:
+            src_plain.append(ch)
+    if len(anchors) != len(marks):          # 极端情况下按少的来,避免错位
+        anchors = anchors[:len(marks)] + [len(src_plain)] * max(0, len(marks) - len(anchors))
+    # ② 对齐:原文骨架 ↔ 译文骨架
+    out_plain = _plain(out)
+    import difflib
+    sm = difflib.SequenceMatcher(None, "".join(src_plain), out_plain, autojunk=False)
+    pos_of = {}
+    for a, b, size in sm.get_matching_blocks():
+        for k in range(size):
+            pos_of[a + k] = b + k
+    # ③ 按顺序插回(带偏移)
+    res, shift = out, 0
+    for i2, anc in enumerate(anchors):
+        p = pos_of.get(anc)
+        if p is None:
+            p = int(len(out_plain) * anc / max(1, len(src_plain)))
+        p = max(0, min(len(res), p + shift))
+        res = res[:p] + marks[i2] + res[p:]
+        shift += 1
+    return res
+
+
+def _looks_broken(out: str, src: str) -> bool:
+    """还原之后还是乱的吗?(符号比原文还多 / 文字几乎没了 / 出现成串符号)"""
+    if not out:
+        return True
+    if len(_plain(out)) < max(1, len(_plain(src)) // 3):
+        return True
+    so, ss = _symbols(out), _symbols(src)
+    if sum(so.values()) > sum(ss.values()) + 2:
+        return True
+    # (这里曾经有一条"连续 5 个以上符号就算乱码"的规则 —— 实测会把
+    #  「原來如此……」他說道——是這樣嗎? 这种**合法**写法误判成乱码,
+    #  导致整句退回原文。已删除。)
+    return False
+
+
+def local_convert(text: str) -> str:
+    """短名字 / 界面词:直接用简繁表转,不问 AI。
+
+    好处:① 不花 token、不等待;② 比模型更准(模型会"贴心地"保留繁体名字);
+    只处理"纯汉字 + 符号"且很短(<= 14 字)的串,长句仍交给 AI 翻译。
+    """
+    s = (text or "").strip()
+    if not s or len(s) > 14:
+        return ""
+    if _KANA.search(s) or _HANGUL.search(s) or _ASCII_WORD.search(s):
+        return ""
+    if not _HAN.search(s):
+        return ""
+    conv = to_simplified(s)
+    return conv if conv != s else ""
 
 
 def is_bad_output(out: str, src: str) -> bool:
@@ -227,6 +389,13 @@ class Translator:
         src = (text or "").strip()
         if not src:
             return text or ""
+        _local = local_convert(src)          # 短名字/界面词:本地转,不问 AI
+        if _local:
+            with self.lock:
+                self.cache[src] = _local
+                self.stat["hit_local"] = self.stat.get("hit_local", 0) + 1
+            self._dirty = True
+            return _local
         if not needs_translation(src):
             with self.lock:
                 self.stat["skip"] += 1
@@ -269,18 +438,51 @@ class Translator:
             "规则:\n"
             "· 只输出译文正文,不要解释、不要加引号、不要输出原文\n"
             "· 必须是**简体中文**,绝对不要输出繁体字;原文里的日文假名一律翻成中文,不许保留\n"
-            "· 人名/地名保留原文的汉字写法(日文汉字照抄),专有名词前后一致\n"
+            "· 人名/地名也要**用简体字写**(「格蘭特尼」→「格兰特尼」、「奧斯卡」→「奥斯卡」);同一名字前后必须一致\n"
+            "· ★符号一个都不能丢、不能换★:原文的标点、括号、引号(「」『』()【】〈〉)、"
+            "音符星号(♪★☆※●○)、箭头、省略号、破折号、颜文字、以及 <>{}[] 这类标记,"
+            "都要**原样保留在原来的位置**,不许增删改写;原文有几个就保留几个\n"
             "· 保留原文的语气、称呼和标点风格;『』「」这类引号换成中文引号\n"
             "· 原文里的换行、颜文字、以及 <>{}[] 之类的标记原样保留\n"
             "· 文本很短(一个词、一个按钮)时,给最自然的界面用词(例如 Save→保存)\n"
             "· 如果原文已经是简体中文,原样返回"
         )
+        prot, marks = _protect_symbols(src)          # 符号 → ⟦n⟧
+        sys2 = system
+        if marks:
+            sys2 = (system + "\n★这条文本里的 [[0]] [[1]] … 是**占位符**,代表原文的标点与符号。"
+                             "你必须把它们**原样、按原顺序全部保留**在译文里(数量一个不少),"
+                             "绝对不要翻译、删除、改动或新增这些记号。")
         try:
-            out = ai_mod._call(system, src, aicfg, timeout, temperature=0.2)
+            out = ai_mod._call(sys2, prot, aicfg, timeout, temperature=0.2)
         except Exception as e:
             self.last_error = f"{type(e).__name__}: {str(e)[:120]}"
             return ""
-        out = to_simplified((out or "").strip())
+        out = _restore_symbols((out or "").strip(), marks, src)   # [[n]] → 原符号(按原文对齐)
+        out = to_simplified(out)
+        if _looks_broken(out, src):
+            # 还原失败 → 用原文重来一次(不带占位符,纯提示词约束);再不行就返回原文
+            self.last_error = "符号还原失败,已重试"
+            try:
+                out = to_simplified((ai_mod._call(system, src, aicfg, timeout, temperature=0.1) or "").strip())
+            except Exception:
+                out = ""
+            if _looks_broken(out, src) or _missing_symbols(src, out):
+                self.last_error = "译文与原文符号对不上,这一句按原文显示"
+                return ""
+        miss = _missing_symbols(src, out)
+        if miss and out:
+            # 漏了符号 → 把"哪个符号、原文几次、你只给了几次"讲清楚,再要一次
+            detail = "、".join("%s(原文 %d 个,你只给了 %d 个)" % (c, n, m) for c, n, m in miss[:6])
+            fix_sys = (system + "\n★上一次的译文漏掉了符号:" + detail +
+                       "。请**只补回这些符号**、其余文字保持不变,重新输出完整译文。")
+            try:
+                out2 = _restore_symbols((ai_mod._call(fix_sys, prot, aicfg, timeout, temperature=0.1) or "").strip(), marks, src)
+                out2 = to_simplified(out2)
+                if out2 and len(_missing_symbols(src, out2)) < len(miss):
+                    out = out2
+            except Exception:
+                pass
         if is_bad_output(out, src):
             self.last_error = "AI 没给出可用的简体中文译文"
             return ""
