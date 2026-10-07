@@ -161,9 +161,25 @@ def _call(system: str, text: str, cfg: dict, timeout: int, temperature: float = 
             detail = e.read().decode("utf-8", "ignore")[:200]
         except Exception:
             pass
-        raise RuntimeError(f"AI 接口返回 {e.code}: {detail or e.reason}")
+        code = e.code
+        if code in (401, 403):
+            hint = "API Key 不对或没有权限 —— 请重新复制一次 Key(注意别带上空格),确认它属于这个接口"
+        elif code == 404:
+            hint = "接口地址不对 —— 地址要以 /v1/chat/completions 结尾(不是 /v1 或网页地址)"
+        elif code == 429:
+            hint = "调用太频繁或额度用完 —— 等一会儿再试,或去官网看余额"
+        elif 500 <= code < 600:
+            hint = "对方服务器暂时出错 —— 过几分钟再试"
+        elif code == 400:
+            hint = "请求被拒绝 —— 多半是模型名写错了(例如应为 deepseek-chat)"
+        else:
+            hint = "接口拒绝了这次请求"
+        raise RuntimeError(f"{hint}(HTTP {code}{':' + detail if detail else ''})")
     except urllib.error.URLError as e:
-        raise RuntimeError(f"连不上 AI 接口: {e.reason}")
+        reason = str(getattr(e, "reason", e))
+        if "timed out" in reason.lower() or "timeout" in reason.lower():
+            raise RuntimeError("连接超时 —— 检查网络,或这台机器是否需要开代理才能访问 AI 接口")
+        raise RuntimeError(f"连不上 AI 接口 —— 检查网络或代理设置({reason})")
 
     try:
         out = data["choices"][0]["message"]["content"]

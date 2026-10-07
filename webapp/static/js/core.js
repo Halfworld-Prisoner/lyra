@@ -135,3 +135,23 @@ window.addEventListener('pointerdown', () => { window.__LY_DOWN = 1; }, true);
 window.addEventListener('pointerup', () => { window.__LY_DOWN = 0; }, true);
 window.addEventListener('pointercancel', () => { window.__LY_DOWN = 0; }, true);
 window.addEventListener('blur', () => { window.__LY_DOWN = 0; }, true);
+
+
+/* ---------------- 输入框"脏值"保护 ---------------- */
+/* 设置页每 0.4 秒按状态重绘一次。玩家输完内容去点「保存」的那一瞬间,焦点已经离开
+   输入框,重绘就会把刚输入的内容当成"过期值"覆盖掉 —— 实测把 API Key 覆盖成空,
+   玩家以为保存了、其实存进去是空的,然后测试连接报"Key 不对"。
+   规则:玩家碰过的输入框,在保存成功前不许被重绘覆盖。 */
+const _dirtyEls = new WeakSet();
+
+export function touchTrack(el) {
+  if (el && !el.__lyTracked) {
+    el.__lyTracked = 1;
+    el.addEventListener('input', () => _dirtyEls.add(el));
+    el.addEventListener('change', () => _dirtyEls.add(el));
+  }
+  return el;
+}
+export function isDirty(el) { return !!el && _dirtyEls.has(el); }
+export function clearDirty(el) { if (el) _dirtyEls.delete(el); }
+export function clearDirtyAll(els) { (els || []).forEach(clearDirty); }

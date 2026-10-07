@@ -1,5 +1,5 @@
 /* 文本翻译页 */
-import { $, $$, esc, toast, get, post, lsRow } from '../core.js';
+import { $, $$, esc, toast, get, post, lsRow, isDirty, clearDirty } from '../core.js';
 import { store, refresh, registerRender } from '../state.js';
 
 /* ---------------- 文本翻译 ---------------- */
@@ -12,7 +12,7 @@ export async function renderTranslate() {
   set('trOn', d.on);
   set('trSay', d.say);
   set('trPrefetch', d.prefetch);
-  if (document.activeElement !== $('trWait')) $('trWait').value = Number(d.wait);
+  if (!isDirty($('trWait')) && document.activeElement !== $('trWait')) $('trWait').value = Number(d.wait);
   const rows = [
     ['当前游戏翻译', d.on ? (d.installed ? '已开启 · 插件已装好' : '已开启(插件没装成功)') : '未开启',
       d.on ? (d.installed ? 'ok' : 'bad') : ''],

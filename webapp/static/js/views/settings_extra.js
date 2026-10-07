@@ -1,7 +1,7 @@
 /* settings_extra.js —— 设置页里的「朗读」与「AI 助手」两块
    (从 cast.js 搬过来的:声音选择/语速/声线/音量本来在角色配音页,玩家要求只留"下载语音包",
      于是全局设置统一收到设置页;AI 配置也集中到这里,过滤规则页/翻译页不再各放一份。) */
-import { $, esc, toast, get, post } from '../core.js';
+import { $, esc, toast, get, post, touchTrack, isDirty, clearDirtyAll } from '../core.js';
 import { store, refresh, registerRender } from '../state.js';
 
 /* ---------------- 朗读:全局声音 ---------------- */
@@ -46,13 +46,13 @@ function renderGlobalVoice() {
   }
   /* 语速 / 声线 / 音量 回填 */
   const r = Number(cfg.rate || 1), p2 = Number(cfg.pitch || 0), v2 = Number(cfg.volume || 1);
-  if ($('rate') && document.activeElement !== $('rate')) {
+  if ($('rate') && !isDirty($('rate')) && document.activeElement !== $('rate')) {
     $('rate').value = r; $('rateVal').textContent = r.toFixed(2) + 'x';
   }
-  if ($('pitch') && document.activeElement !== $('pitch')) {
+  if ($('pitch') && !isDirty($('pitch')) && document.activeElement !== $('pitch')) {
     $('pitch').value = p2; $('pitchVal').textContent = p2 ? ((p2 > 0 ? '高 ' : '低 ') + Math.abs(p2) + ' 半音') : '原声';
   }
-  if ($('volume') && document.activeElement !== $('volume')) {
+  if ($('volume') && !isDirty($('volume')) && document.activeElement !== $('volume')) {
     $('volume').value = v2; $('volVal').textContent = Math.round(v2 * 100) + '%';
   }
 }
@@ -89,12 +89,12 @@ $('pitchReset').onclick = () => nudgePitch(-Number($('pitch').value));
 function renderAI() {
   const ai = (store.S.settings || {}).ai || {};
   const eps = $('aiEndpoint'), md = $('aiModel'), key = $('aiKey');
-  if (eps && document.activeElement !== eps) eps.value = ai.endpoint || ai.base_url || 'https://api.deepseek.com/v1/chat/completions';
-  if (md && document.activeElement !== md) md.value = ai.model || 'deepseek-chat';
-  if (key && document.activeElement !== key) key.value = ai.api_key || '';
+  if (eps && !isDirty(eps) && document.activeElement !== eps) eps.value = ai.endpoint || ai.base_url || 'https://api.deepseek.com/v1/chat/completions';
+  if (md && !isDirty(md) && document.activeElement !== md) md.value = ai.model || 'deepseek-chat';
+  if (key && !isDirty(key) && document.activeElement !== key) key.value = ai.api_key || '';
   const pin = $('aiPriceIn'), pout = $('aiPriceOut');
-  if (pin && document.activeElement !== pin) pin.value = Number(ai.price_in == null ? 2 : ai.price_in);
-  if (pout && document.activeElement !== pout) pout.value = Number(ai.price_out == null ? 8 : ai.price_out);
+  if (pin && !isDirty(pin) && document.activeElement !== pin) pin.value = Number(ai.price_in == null ? 2 : ai.price_in);
+  if (pout && !isDirty(pout) && document.activeElement !== pout) pout.value = Number(ai.price_out == null ? 8 : ai.price_out);
   const st = $('aiState');
   if (st) {
     st.textContent = (ai.base_url && ai.api_key)
@@ -118,7 +118,7 @@ function renderAI() {
 
 $('aiSave').onclick = async () => {
   const ep = ($('aiEndpoint').value || '').trim() || 'https://api.deepseek.com/v1/chat/completions';
-  await post('/api/settings', {
+  const r = await post('/api/settings', {
     ai: {
       base_url: ep,
       model: ($('aiModel').value || '').trim() || 'deepseek-chat',
@@ -127,7 +127,14 @@ $('aiSave').onclick = async () => {
       price_out: Number($('aiPriceOut').value || 0),
     },
   });
-  toast('AI 设置已保存');
+  if (r && r.ok === false) {
+    toast('保存失败:' + (r.msg || r.error || '后端没接受'));
+    return;                      /* 保留脏标记,内容不会被刷新清掉 */
+  }
+  clearDirtyAll([$('aiEndpoint'), $('aiModel'), $('aiKey'), $('aiPriceIn'), $('aiPriceOut')]);
+  clearDirtyAll([$('rate'), $('pitch'), $('volume')]);
+  const k = ($('aiKey').value || '').trim();
+  toast(k ? 'AI 设置已保存(Key 长度 ' + k.length + ')' : '已保存,但 API Key 是空的');
   refresh();
 };
 $('aiTest').onclick = async () => {
@@ -135,7 +142,7 @@ $('aiTest').onclick = async () => {
   st.textContent = '正在测试连接 …';
   const r = await post('/api/ai/test', {});
   st.textContent = r.ok ? ('连接正常 ✓ ' + (r.msg || '')) : ('连接失败:' + (r.msg || ''));
-  toast(r.ok ? 'AI 连接正常' : '连接失败,检查 Key/网络');
+  toast(r.ok ? 'AI 连接正常' : ('连接失败:' + (r.msg || '原因不详')));
   renderAI();
 };
 
