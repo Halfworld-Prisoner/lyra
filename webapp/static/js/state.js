@@ -31,6 +31,11 @@ async function refreshInner() {
   try { st = await get('/api/state'); }
   catch (e) { setStatusText('连不上服务', 'err'); return; }
   store.S = st;
+  /* 首次拿到数据 → 通知开机动画可以收尾了(见 js/splash.js) */
+  if (document.body.dataset.stateReady !== '1') {
+    document.body.dataset.stateReady = '1';
+    if (typeof document.body.classList !== 'undefined') document.body.classList.add('ready');
+  }
   const cfg = st.settings || {};
   const m = st.metrics || {};
 

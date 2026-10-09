@@ -1869,6 +1869,7 @@ class Handler(BaseHTTPRequestHandler):
                         "auto_next_fallback": cfg.get("auto_next_fallback", True) is not False,
                         "translate": dict(cfg.get("translate") or {}),
                         "theme": cfg.get("theme"),
+                        "splash_on": cfg.get("splash_on", True) is not False,   # 开机动画(缺省开)
                         "on_top": cfg.get("on_top"), "watch_game": cfg.get("watch_game"),
                         "hook_proxy": cfg.get("hook_proxy") or "auto",
                         "hook_profile": cfg.get("hook_profile") or "gameonly",

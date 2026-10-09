@@ -1,0 +1,212 @@
+/* ============================================================================
+   Lyra 开机动画(splash)
+   灵感:天琴座(Lyra)—— 织女星 + 那个标志性的平行四边形。
+   全程只用 CSS/SVG 动画:不引第三方库、不下载资源、不拖慢启动。
+   跟随主题变量(--bg / --accent / --text),四套主题自动适配;
+   尊重系统的"减少动态效果"设置(prefers-reduced-motion)。
+   ========================================================================== */
+
+#splash {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(120% 100% at 50% 0%, var(--panel-2), var(--bg) 60%);
+  overflow: hidden;
+  transition: opacity .45s ease, visibility .45s ease;
+}
+#splash.out { opacity: 0; visibility: hidden; }
+
+/* ---------- 星空:用两层 radial-gradient 点阵缓慢漂移,做出"深空"感 ---------- */
+#splash .stars,
+#splash .stars2 {
+  position: absolute;
+  inset: -20%;
+  background-repeat: repeat;
+  pointer-events: none;
+}
+#splash .stars {
+  background-image:
+    radial-gradient(1.6px 1.6px at 20% 30%, rgba(255,255,255,.85), transparent 60%),
+    radial-gradient(1.3px 1.3px at 70% 12%, rgba(255,255,255,.65), transparent 60%),
+    radial-gradient(1.8px 1.8px at 42% 68%, rgba(255,255,255,.8), transparent 60%),
+    radial-gradient(1.2px 1.2px at 85% 55%, rgba(255,255,255,.55), transparent 60%),
+    radial-gradient(1.5px 1.5px at 12% 80%, rgba(255,255,255,.7), transparent 60%),
+    radial-gradient(1.1px 1.1px at 58% 88%, rgba(255,255,255,.5), transparent 60%),
+    radial-gradient(1.4px 1.4px at 33% 8%, rgba(255,255,255,.6), transparent 60%);
+  background-size: 520px 520px;
+  animation: sp-drift 60s linear infinite, sp-twinkle 4s ease-in-out infinite;
+  opacity: .9;
+}
+#splash .stars2 {
+  background-image:
+    radial-gradient(1.1px 1.1px at 62% 42%, rgba(255,255,255,.5), transparent 60%),
+    radial-gradient(1.6px 1.6px at 8% 48%, rgba(255,255,255,.45), transparent 60%),
+    radial-gradient(1.2px 1.2px at 78% 78%, rgba(255,255,255,.5), transparent 60%);
+  background-size: 340px 340px;
+  animation: sp-drift 90s linear infinite reverse, sp-twinkle 6s ease-in-out infinite;
+  opacity: .6;
+}
+@keyframes sp-drift { from { transform: translate3d(0,0,0) } to { transform: translate3d(-120px,-90px,0) } }
+@keyframes sp-twinkle { 0%,100% { opacity: .55 } 50% { opacity: .95 } }
+
+/* ---------- 舞台 ---------- */
+#splash .stage {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  justify-items: center;
+  gap: 22px;
+  transform: translateZ(0);
+}
+#splash svg.constellation {
+  /* 星座抬到 logo 上方、整体压暗:是"背景氛围",不能盖住主角 */
+  position: absolute;
+  top: -196px;
+  left: 50%;
+  width: 430px;
+  height: 280px;
+  transform: translateX(-50%);
+  overflow: visible;
+  pointer-events: none;
+  opacity: .38;
+}
+#splash svg.constellation line {
+  stroke: var(--accent);
+  stroke-width: 1.1;
+  stroke-linecap: round;
+  opacity: .55;
+  stroke-dasharray: 220;
+  stroke-dashoffset: 220;
+  animation: sp-draw 1.1s ease-out forwards;
+}
+#splash svg.constellation line:nth-child(2) { animation-delay: .12s }
+#splash svg.constellation line:nth-child(3) { animation-delay: .24s }
+#splash svg.constellation line:nth-child(4) { animation-delay: .36s }
+#splash svg.constellation line:nth-child(5) { animation-delay: .48s }
+#splash svg.constellation circle {
+  fill: #fff;
+  opacity: 0;
+  animation: sp-star 1.2s ease-out forwards;
+}
+#splash svg.constellation circle.vega {
+  fill: #fff;
+  filter: drop-shadow(0 0 8px var(--accent));
+  animation-delay: .5s;
+}
+#splash svg.constellation circle:nth-of-type(2) { animation-delay: .58s }
+#splash svg.constellation circle:nth-of-type(3) { animation-delay: .66s }
+#splash svg.constellation circle:nth-of-type(4) { animation-delay: .74s }
+#splash svg.constellation circle:nth-of-type(5) { animation-delay: .82s }
+@keyframes sp-draw { to { stroke-dashoffset: 0 } }
+@keyframes sp-star {
+  0%   { opacity: 0; transform: scale(.4) }
+  60%  { opacity: 1; transform: scale(1.5) }
+  100% { opacity: .95; transform: scale(1) }
+}
+
+/* ---------- logo:淡入 + 轻微 3D 摆动 + 一道高光扫过 ---------- */
+#splash .mark {
+  position: relative;
+  width: 132px;
+  height: 132px;
+  border-radius: 32px;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 18px 50px rgba(0,0,0,.45), 0 0 0 1px var(--line-2);
+  opacity: 0;
+  transform: perspective(700px) rotateY(-22deg) scale(.82);
+  animation: sp-mark-in 1s cubic-bezier(.2,.9,.25,1) .55s forwards,
+             sp-mark-sway 5.5s ease-in-out 1.6s infinite;
+}
+#splash .mark img { width: 100%; height: 100%; object-fit: cover; display: block; }
+#splash .mark::after {                      /* 高光扫过 */
+  content: '';
+  position: absolute;
+  top: -30%;
+  left: -60%;
+  width: 45%;
+  height: 160%;
+  background: linear-gradient(100deg, transparent, rgba(255,255,255,.75), transparent);
+  transform: rotate(14deg);
+  animation: sp-sheen 1.5s ease-in-out 1.25s;
+}
+@keyframes sp-mark-in {
+  to { opacity: 1; transform: perspective(700px) rotateY(0deg) scale(1) }
+}
+@keyframes sp-mark-sway {
+  0%, 100% { transform: perspective(700px) rotateY(-5deg) rotateX(2deg) translateY(0) }
+  50%      { transform: perspective(700px) rotateY(5deg) rotateX(-2deg) translateY(-6px) }
+}
+@keyframes sp-sheen { from { left: -60% } to { left: 130% } }
+
+/* ---------- 标题:逐字升起 ---------- */
+#splash .title {
+  display: flex;
+  gap: 3px;
+  font-size: 42px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  color: var(--text);
+  margin-top: 6px;
+}
+#splash .title span {
+  opacity: 0;
+  transform: translateY(18px) rotateX(-40deg);
+  animation: sp-letter .7s cubic-bezier(.2,.9,.25,1) forwards;
+}
+#splash .title span:nth-child(1) { animation-delay: 1.05s }
+#splash .title span:nth-child(2) { animation-delay: 1.14s }
+#splash .title span:nth-child(3) { animation-delay: 1.23s }
+#splash .title span:nth-child(4) { animation-delay: 1.32s }
+#splash .title span:nth-child(5) { animation-delay: 1.41s }
+@keyframes sp-letter { to { opacity: 1; transform: none } }
+
+#splash .tagline {
+  font-size: 13.5px;
+  color: var(--muted);
+  opacity: 0;
+  animation: sp-fade .8s ease 1.5s forwards;
+}
+@keyframes sp-fade { to { opacity: 1 } }
+
+/* ---------- 进度条 + 跳过的提示 ---------- */
+#splash .bar {
+  width: 190px;
+  height: 3px;
+  border-radius: 99px;
+  background: var(--soft);
+  overflow: hidden;
+}
+#splash .bar i {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 99px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  animation: sp-load 2.25s cubic-bezier(.4,.1,.2,1) .35s forwards;
+}
+@keyframes sp-load { to { width: 100% } }
+
+#splash .skip {
+  position: absolute;
+  bottom: 26px;
+  font-size: 12px;
+  color: var(--muted);
+  opacity: 0;
+  animation: sp-fade .6s ease 1.6s forwards;
+}
+
+/* 减少动态效果:直接静态展示,不播放动画 */
+@media (prefers-reduced-motion: reduce) {
+  #splash .stars, #splash .stars2, #splash .mark, #splash .mark::after,
+  #splash .title span, #splash .bar i, #splash svg.constellation line,
+  #splash svg.constellation circle { animation: none !important; opacity: 1 !important; }
+  #splash .bar i { width: 100% }
+  #splash .mark { transform: none }
+}
+
+/* 动画结束后主界面淡入(不做隐藏,避免 JS 出错时白屏) */
+.app { opacity: .001; transition: opacity .5s ease .05s; }
+body.ready .app { opacity: 1; }

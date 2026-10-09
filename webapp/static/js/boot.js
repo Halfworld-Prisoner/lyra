@@ -72,6 +72,10 @@ $('allowReplay').onclick = async () => {
 };
 
 /* ---------------- 启动 ---------------- */
+/* 开机动画:先放动画,数据到位后再淡出(动画在 css/splash.css 里,纯 CSS/SVG) */
+import('./splash.js').then((m) => {
+  m.playSplash((window.store && window.store.S && window.store.S.settings) || null);
+}).catch(() => { document.body.classList.add('ready'); });
 startWave();
 installContextMenu();
 refresh();

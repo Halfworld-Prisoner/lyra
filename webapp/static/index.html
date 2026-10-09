@@ -11,8 +11,35 @@
 <link rel="stylesheet" href="/static/css/components.css">
 <link rel="stylesheet" href="/static/css/views.css">
 <link rel="stylesheet" href="/static/css/extra.css">
+<link rel="stylesheet" href="/static/css/splash.css">
 </head>
 <body>
+
+<!-- ==================== 开机动画(设置里可关)==================== -->
+<div id="splash" role="presentation">
+  <div class="stars"></div>
+  <div class="stars2"></div>
+  <div class="stage">
+    <!-- 天琴座:织女星 + 那个标志性的平行四边形 -->
+    <svg class="constellation" viewBox="0 0 460 300" aria-hidden="true">
+      <line x1="300" y1="40"  x2="238" y2="92"></line>
+      <line x1="238" y1="92"  x2="140" y2="118"></line>
+      <line x1="140" y1="118" x2="92"  y2="206"></line>
+      <line x1="92"  y1="206" x2="186" y2="238"></line>
+      <line x1="186" y1="238" x2="238" y2="92"></line>
+      <circle class="vega" cx="300" cy="40"  r="4.6"></circle>
+      <circle cx="238" cy="92"  r="2.8"></circle>
+      <circle cx="140" cy="118" r="2.8"></circle>
+      <circle cx="92"  cy="206" r="2.8"></circle>
+      <circle cx="186" cy="238" r="2.8"></circle>
+    </svg>
+    <div class="mark"><img src="/static/img/logo.png" alt="Lyra"></div>
+    <div class="title"><span>L</span><span>y</span><span>r</span><span>a</span></div>
+    <div class="tagline">Unity 游戏朗读器 · 把游戏里的文字念出来</div>
+    <div class="bar"><i></i></div>
+  </div>
+  <div class="skip">点击任意位置跳过</div>
+</div>
 
 <div class="app">
 
@@ -54,6 +81,9 @@
         <button data-theme="light" title="明亮:白天/亮环境用">明亮</button>
         <button data-theme="sepia" title="护眼:低对比暖色,长时间阅读更舒服">护眼</button>
       </div>
+      <label class="switch splash-sw" title="启动时播放的开机动画(天琴座星座 + Logo)">
+        <input id="splashOn" type="checkbox"><i></i><span>开机动画</span>
+      </label>
     </div>
     <div class="gauge">
       <div class="gauge-top"><span>内存占用</span><b id="sideMem">—</b></div>
@@ -768,5 +798,9 @@
 </script>
 <!-- 逻辑拆成模块:core(工具) → state(状态/刷新) → views/*(每页一个) → boot(启动) -->
 <script type="module" src="/static/js/boot.js"></script>
+<script>
+/* lyra-safety:无论开机动画/脚本出什么状况,5 秒后主界面一定可见 */
+setTimeout(function () { document.body.classList.add('ready'); }, 5000);
+</script>
 </body>
 </html>
