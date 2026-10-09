@@ -75,13 +75,11 @@ $('allowReplay').onclick = async () => {
 startWave();
 installContextMenu();
 
-/* ★先取一次数据,再决定要不要放开机动画★
-   以前这里直接 playSplash(store.S.settings),可那一刻数据还没到,
-   于是"关掉动画"的设置不生效(总按默认开播)。现在等首帧数据回来再判断;
-   关掉的话立刻撤掉遮罩,不会闪。动画本身在 css/splash.css + js/splash.js 里。 */
-refresh().then(() => import('./splash.js')
-  .then((m) => m.playSplash((store.S && store.S.settings) || null))
-  .catch(() => document.body.classList.add('ready')))
+/* 开机动画:固定流程,立刻开始播(动画在 css/splash.css + js/splash.js)
+   数据到位后(state.js 会挂 stateReady)动画自动收尾进主界面;
+   点击 / 按键也可以立刻跳过。 */
+import('./splash.js')
+  .then((m) => m.playSplash())
   .catch(() => document.body.classList.add('ready'));
-
+refresh();
 setInterval(refresh, 400);      /* 刷新间隔:越小越跟手 */

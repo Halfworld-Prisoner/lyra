@@ -640,11 +640,65 @@ def diagnose() -> dict:
         return {"level": "warn", "text": f"状态判断出错:{e}"}
 
 
+# 窗口宿主注册过的类名(改名 Lyra 时类名仍是老的 —— 两个都留着,以后改名也不会坏)
+_WINDOW_CLASSES = ("LyraWindow", "LingYueReaderWindow", "聆阅Window")
+# 宿主进程名(按进程找窗口时的依据)
+_HOST_EXES = ("lyra.exe", "聆阅.exe", "lingyuereader.exe")
+
+
+def _hwnd_by_process() -> int:
+    """枚举顶层可见窗口,挑出属于窗口宿主进程、面积最大的那个。"""
+    import ctypes
+    from ctypes import wintypes
+    u = ctypes.windll.user32
+    k = ctypes.windll.kernel32
+    u.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    best = [0, 0]                      # [面积, hwnd]
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def cb(hwnd, _):
+        if not u.IsWindowVisible(hwnd):
+            return True
+        pid = wintypes.DWORD()
+        u.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        h = k.OpenProcess(0x1000, False, pid.value)      # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return True
+        try:
+            buf = ctypes.create_unicode_buffer(1024)
+            size = wintypes.DWORD(1024)
+            if not k.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(size)):
+                return True
+            name = buf.value.rsplit("\\", 1)[-1].lower()
+            if name not in _HOST_EXES:
+                return True
+            r = wintypes.RECT()
+            u.GetWindowRect(hwnd, ctypes.byref(r))
+            area = (r.right - r.left) * (r.bottom - r.top)
+            if area > best[0]:
+                best[0], best[1] = area, int(hwnd)
+        finally:
+            k.CloseHandle(h)
+        return True
+
+    u.EnumWindows(cb, 0)
+    return best[1]
+
+
 def _native_hwnd():
     """运行器的原生窗口句柄(找不到就返回 0)。"""
     try:
         import ctypes
-        return int(ctypes.windll.user32.FindWindowW("LyraWindow", None) or 0)
+        u = ctypes.windll.user32
+        for cls in _WINDOW_CLASSES:                      # ① 按类名
+            h = int(u.FindWindowW(cls, None) or 0)
+            if h:
+                return h
+        h = _hwnd_by_process()                           # ② 按宿主进程
+        if h:
+            return h
+        h = int(u.FindWindowW(None, "Lyra") or 0)        # ③ 按标题
+        return h
     except Exception:
         return 0
 
@@ -1869,7 +1923,6 @@ class Handler(BaseHTTPRequestHandler):
                         "auto_next_fallback": cfg.get("auto_next_fallback", True) is not False,
                         "translate": dict(cfg.get("translate") or {}),
                         "theme": cfg.get("theme"),
-                        "splash_on": cfg.get("splash_on", True) is not False,   # 开机动画(缺省开)
                         "on_top": cfg.get("on_top"), "watch_game": cfg.get("watch_game"),
                         "hook_proxy": cfg.get("hook_proxy") or "auto",
                         "hook_profile": cfg.get("hook_profile") or "gameonly",

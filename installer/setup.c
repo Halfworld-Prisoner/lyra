@@ -43,7 +43,7 @@
 #define APP_EXE_NAME  L"Lyra.exe"
 #define UNINSTALL_NAME L"卸载 Lyra.exe"
 #define SETUP_EXE     L"Lyra 安装程序.exe"
-#define APP_VERSION   L"1.2"          /* 界面右上角显示的版本 */
+#define APP_VERSION   L"1.3"          /* 界面右上角显示的版本 */
 #define REG_UNINSTALL L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\" APP_TITLE
 #define SERVER_REL    L"app\\webapp\\server.py"
 #define DEPS_MARKER   L"runtime\\.deps-ok"

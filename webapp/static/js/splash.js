@@ -4,7 +4,7 @@
  *   · 动画本身全在 CSS 里(见 css/splash.css),这里只负责"什么时候放、什么时候收";
  *   · 最短播放 2.4 秒(让动画走完),但如果后端数据早就准备好了,**不额外等**;
  *   · 点击 / 按键 / 触摸 = 立刻跳过 —— 第二次打开的人不会烦;
- *   · 设置里可以永久关掉(config.translate 之外的界面设置 splash_on);
+ *   · 固定流程,界面上没有开关(调试时可在控制台 lyraSplashOff() 临时关掉);
  *   · 尊重系统"减少动态效果":直接不播。
  */
 import { $, get } from './core.js';
@@ -12,9 +12,11 @@ import { $, get } from './core.js';
 const MIN_MS = 2100;          // 动画走完所需时间
 const MAX_MS = 3000;          // 兜底:再慢也要进主界面
 
-export function splashEnabled(cfg) {
-  if (localStorage.getItem('lyra_splash') === 'off') return false;      // 本机临时关
-  if (cfg && cfg.splash_on === false) return false;                    // 设置里关
+export function splashEnabled() {
+  /* 开机动画是固定流程(玩家要求:不做开关)。
+     只保留一条本机调试用的逃生口:控制台执行 lyraSplashOff() 可临时关掉,
+     以及系统「减少动态效果」时不动画。 */
+  if (localStorage.getItem('lyra_splash') === 'off') return false;
   try {
     if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false;
   } catch (e) { /* 老引擎没有 matchMedia,照常播 */ }
@@ -22,13 +24,12 @@ export function splashEnabled(cfg) {
 }
 
 /**
- * 播放开机动画。
- * @param {{splash_on?:boolean}} cfg 当前配置
+ * 播放开机动画(固定流程,没有开关)。
  * @returns {Promise<void>} 动画结束(或被跳过)后 resolve
  */
-export function playSplash(cfg) {
+export function playSplash() {
   const box = $('splash');
-  if (!box || !splashEnabled(cfg)) {
+  if (!box || !splashEnabled()) {
     if (box && box.parentNode) box.parentNode.removeChild(box);
     document.body.classList.add('ready');
     return Promise.resolve();

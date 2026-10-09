@@ -101,7 +101,6 @@ const _SWITCHES = [
   ['bbAuto',            (s) => s.auto_say],
   ['sayName',           (s) => s.say_name],
   ['castOn',            (s) => s.cast_on],
-  ['splashOn',          (s) => s.splash_on !== false],   // 缺省=开
 ];
 const _NUMBERS = [
   ['minCjk',            (s) => (s.hook || {}).min_cjk],
@@ -114,14 +113,6 @@ const _SELECTS = [
   ['hookProxy',         (s) => s.hook_proxy],
   ['hookProfile',       (s) => s.hook_profile],
 ];
-
-/* 开机动画开关(侧栏) */
-if ($('splashOn')) {
-  $('splashOn').onchange = (e) => {
-    post('/api/settings', { splash_on: e.target.checked })
-      .then(() => toast(e.target.checked ? '开机动画已打开' : '已关闭开机动画'));
-  };
-}
 
 /* 玩家刚动过的控件:1.2 秒内不要被刷新覆盖(后端回值有时间差) */
 document.addEventListener('change', (e) => {

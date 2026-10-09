@@ -90,7 +90,6 @@ DEFAULTS = {
 
     # ---- 界面 ----
     "theme": "dark",
-    "splash_on": True,               # 启动时播放开机动画(天琴座星座 + Logo)
     "on_top": True,
     "watch_game": True,               # 监控启动的游戏:游戏关了就退出本服务
     "auto_scan": True,                # 启动时自动扫描 Steam 里的 Unity 游戏并入游戏库
