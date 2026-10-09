@@ -59,7 +59,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "windres 编译卸载器资源失败" }
 } finally { Pop-Location }
 & g++ (Join-Path $inst "uninstall.c") $unRes -o (Join-Path $inst "uninstall.exe") `
-    -x c++ -O2 -municode -mwindows -static-libgcc -static-libstdc++ -fpermissive -w `
+    -x c++ -O2 -municode -mwindows -static-libgcc -static -static-libstdc++ -fpermissive -w `
     -I "$inst\compat" -I "$wvInc" `
     -lcomctl32 -lole32 -loleaut32 -luuid -lshell32 -lshlwapi -ladvapi32
 if ($LASTEXITCODE -ne 0) { throw "gcc 编译卸载器失败" }
@@ -87,7 +87,7 @@ try {
 Write-Host "=== 4/5 编译 exe ==="
 $tmpExe = Join-Path $build "setup.exe"
 & g++ (Join-Path $inst "setup.c") $res -o $tmpExe `
-    -x c++ -O2 -municode -mwindows -static-libgcc -static-libstdc++ -fpermissive -w `
+    -x c++ -O2 -municode -mwindows -static-libgcc -static -static-libstdc++ -fpermissive -w `
     -I "$inst\compat" -I "$wvInc" `
     -lcomctl32 -lole32 -loleaut32 -luuid -lshell32 -lshlwapi -lurlmon -ladvapi32
 if ($LASTEXITCODE -ne 0) { throw "gcc 编译失败" }

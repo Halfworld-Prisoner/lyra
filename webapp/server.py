@@ -250,6 +250,23 @@ def _is_female_voice(v: str) -> bool:
     return any(h in v for h in _FEMALE_HINT)
 
 
+def _voice_exists(v: str) -> bool:
+    """这个声音 id 现在还能用吗?(语音包被卸载 / id 写错时返回 False)"""
+    v = (v or "").strip()
+    if not v:
+        return False
+    try:
+        if v.startswith("sherpa:"):
+            pid = tts.sherpa_pack_of(v)
+            return bool(pid) and voices.is_installed(pid)
+        for vid, _lang in tts.list_voices():
+            if vid == v:
+                return True
+        return False
+    except Exception:
+        return True          # 判断不了就别动玩家的设置
+
+
 def migrate_voice_cfg() -> list:
     """一次性修好配置里"已经下架 / 会读错声音"的老数据(幂等,每次启动都跑一遍)。
 
@@ -283,25 +300,28 @@ def migrate_voice_cfg() -> list:
             males = voices.male_speakers(pid)
             if males and sid not in males:
                 fixed = f"sherpa:{pid}#{males[sid % len(males)]}"
-    elif cur and _is_female_voice(cur):
-        fixed = pick_default()
+    # (曾经这里把"女声"一律换成男声默认 —— 已移除:女声早已加回,玩家可自由选择)
     if fixed != cur:
         cfg["voice"] = fixed
         notes.append(f"默认语音 {cur or '(空)'} → {fixed or '(空)'}(女声已下架)")
 
+    # ★这里原来会把「默认配音」和「角色配音」里的女声清空★
+    #   那是女声下架时的一次性迁移,女声早就加回来了 —— 玩家选的女声必须原样保留,
+    #   否则每次重启都会看到自己的选择被改回"跟随全局语音"(实测玩家反馈)。
+    #   现在只做一件事:把**已经不存在**的声音 id 清掉(语音包被卸载/id 写错)。
     cd = str(cfg.get("cast_default") or "")
-    if cd and _is_female_voice(cd):
+    if cd and not _voice_exists(cd):
         cfg["cast_default"] = ""
-        notes.append("默认配音里的女声(SAPI)已改回「跟随全局语音」")
+        notes.append(f"默认配音 {cd} 已不存在,改回「跟随全局语音」")
 
     cast = cfg.get("cast") or {}
     changed = 0
     for name, item in list(cast.items()):
-        if isinstance(item, dict) and item.get("voice") and _is_female_voice(item["voice"]):
+        if isinstance(item, dict) and item.get("voice") and not _voice_exists(item["voice"]):
             item["voice"] = ""
             changed += 1
     if changed:
-        notes.append(f"{changed} 个角色原来配的是女声,已改成跟随全局语音")
+        notes.append(f"{changed} 个角色配的声音已不存在,改回跟随全局语音")
 
     # 角色名收集表里混进过方法名/菜单词(老版本 bug),清掉
     seen = cfg.get("cast_seen") or {}
@@ -1903,6 +1923,10 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     out = TRANSLATOR.get(src, cfgm.get().get("ai") or {})
                 except Exception:
+                    out = src
+                if not (out or "").strip():
+                    # ★绝不能返回空体★:XUnity 收到空响应就判定"翻译失败"并写进缓存。
+                    # 翻不出来就原样返回原文 —— 玩家看到原文,而不是一串"翻译失败"。
                     out = src
                 _note_req(src, out)
                 return self._text(out)

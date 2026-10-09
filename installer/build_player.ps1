@@ -45,7 +45,7 @@ try {
     & windres "player.rc" -O coff -o (Join-Path $build "player.res")
     if ($LASTEXITCODE -ne 0) { throw "windres 编译 player.rc 失败" }
     & g++ "player.cpp" (Join-Path $build "player.res") -o $out `
-        -O2 -municode -mwindows -static-libgcc -static-libstdc++ `
+        -O2 -municode -mwindows -static-libgcc -static -static-libstdc++ `
         -I "compat" -I $inc `
         -lole32 -loleaut32 -luuid -lshlwapi -lwinhttp -lshell32 -ladvapi32
     if ($LASTEXITCODE -ne 0) { throw "g++ 编译 player.cpp 失败" }

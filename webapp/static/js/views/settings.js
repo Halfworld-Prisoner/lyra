@@ -83,3 +83,76 @@ $('saveProxy').onclick = async () => {
   toast((r && r.msg) || '已重装 LDC');
   refresh();
 };
+
+
+/* ---------------- 配置 → 界面:把开关/数值/下拉的状态画出来 ----------------
+   以前**没有这段**,于是重启后开关全显示成"关"(HTML 默认值),但后端其实是开的,
+   玩家会以为设置没生效。注意:正在操作的控件不覆盖,免得和点击打架。 */
+const _SWITCHES = [
+  ['strict',            (s) => (s.hook || {}).strict],
+  ['interrupt',         (s) => (s.hook || {}).interrupt],
+  ['autoNext',          (s) => s.auto_next],
+  ['autoNextSilent',    (s) => s.auto_next_silent],
+  ['autoNextFallback',  (s) => s.auto_next_fallback],
+  ['autoNextBlank',     (s) => s.auto_next_blank],
+  ['onTop',             (s) => s.on_top],
+  ['watchGame',         (s) => s.watch_game],
+  ['floatOn',           (s) => s.float_on],
+  ['bbAuto',            (s) => s.auto_say],
+  ['sayName',           (s) => s.say_name],
+  ['castOn',            (s) => s.cast_on],
+];
+const _NUMBERS = [
+  ['minCjk',            (s) => (s.hook || {}).min_cjk],
+  ['autoNextDelay',     (s) => s.auto_next_delay],
+  ['autoNextBlankWait', (s) => s.auto_next_blank_wait],
+  ['floatCorner',       (s) => s.float_corner],
+];
+const _SELECTS = [
+  ['autoNextPoint',     (s) => s.auto_next_point],
+  ['hookProxy',         (s) => s.hook_proxy],
+  ['hookProfile',       (s) => s.hook_profile],
+];
+
+/* 玩家刚动过的控件:1.2 秒内不要被刷新覆盖(后端回值有时间差) */
+document.addEventListener('change', (e) => {
+  const el = e.target;
+  if (el && el.id) {
+    el.__lyTouched = Date.now();
+    setTimeout(() => { el.__lyTouched = 0; }, 1200);
+  }
+}, true);
+
+export function renderSettings() {
+  const s = store.S.settings || {};
+  const busy = (el) => el === document.activeElement || (el.__lyTouched && Date.now() - el.__lyTouched < 1200);
+
+  for (const [id, get] of _SWITCHES) {
+    const el = $(id);
+    if (!el || busy(el)) continue;
+    const v = !!get(s);
+    if (el.checked !== v) el.checked = v;
+  }
+  for (const [id, get] of _NUMBERS) {
+    const el = $(id);
+    if (!el || busy(el)) continue;
+    const v = get(s);
+    if (v === undefined || v === null) continue;
+    if (String(el.value) !== String(v)) el.value = String(v);
+  }
+  for (const [id, get] of _SELECTS) {
+    const el = $(id);
+    if (!el || busy(el)) continue;
+    const v = get(s);
+    if (v === undefined || v === null || v === '') continue;
+    if (el.value !== String(v)) el.value = String(v);
+  }
+  /* 额外过滤词(逗号分隔) */
+  const ew = $('extraWords');
+  if (ew && !busy(ew)) {
+    const want = (((s.hook || {}).extra_words) || []).join(',');
+    if (document.activeElement !== ew && ew.value !== want) ew.value = want;
+  }
+}
+
+registerRender(renderSettings);
