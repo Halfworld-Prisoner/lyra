@@ -54,3 +54,6 @@ desktop.ini
 *.bak
 *.bak_*
 ~$*
+
+# ---- 本地备份(不要上传)----
+_backup/

@@ -25,7 +25,8 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 import config as cfgm                                  # noqa: E402
-from core import storyhook, tts, voices                # noqa: E402
+from core import storyhook
+from core import readstats, tts, voices                # noqa: E402
 from core.storyhook import pick_proxy                    # noqa: E402
 from core import autoclick                               # noqa: E402
 from core import floatwin                                # noqa: E402
@@ -802,6 +803,12 @@ threading.Thread(target=_seen_loop, daemon=True, name="castseen").start()
 
 
 def _on_line(text):
+
+    # ★累计阅读统计★(永久保存,见 core/readstats.py)
+    try:
+        readstats.note(HOOK.game or {}, text)
+    except Exception:
+        pass
     if PAUSED["on"]:
         return                        # 游戏已关闭,暂停读取
     if not dlp_on():
@@ -897,7 +904,7 @@ def _auto_next_after_read(gen: int):
     if PAUSED["on"] or not dlp_on():
         return
     # 存档/读档等菜单界面里绝不点击:那里的按钮可能直接**覆盖存档**
-    if HOOK.filter.menu_active():
+    if HOOK.filter.menu_active() or HOOK.filter.choice_active():
         add_log("现在停在存档/菜单界面,不点下一句(避免误触)", "info")
         return
     try:
@@ -936,7 +943,7 @@ def _blank_next_tick():
         return
     if not cfg.get("auto_say"):
         return                            # 没在自动朗读 = 玩家自己在玩,不要帮他点
-    if HOOK.filter.menu_active():
+    if HOOK.filter.menu_active() or HOOK.filter.choice_active():
         return                            # 菜单界面(存档/读档/设置)里不点
     if PAUSED["on"] or not dlp_on():
         return
@@ -1440,7 +1447,7 @@ def _float_state() -> str:
         return "norun"
     if not dlp_on():
         return "hookoff"
-    if HOOK.filter.menu_active():
+    if HOOK.filter.menu_active() or HOOK.filter.choice_active():
         return "menu"                   # 存档/读档等菜单界面:暂停读取,也不自动点
     if _SPK["on"]:
         return "speaking"
@@ -1906,6 +1913,7 @@ class Handler(BaseHTTPRequestHandler):
                     "speaker": HOOK.filter.speaker,
                     "learned": STATE["learned"],
                     "metrics": metrics(),
+                    "stats": readstats.for_game(HOOK.game or {}),   # 累计阅读(永久)
                     "running": {"active": bool(RUNNING["active"]), "name": RUNNING["name"],
                                 "exe": RUNNING["exe"]},
                     "settings": {
@@ -2025,6 +2033,12 @@ class Handler(BaseHTTPRequestHandler):
                     ai_mod.reset_usage()
                 return self._json({"ok": True})
 
+            if p == "/api/stats":
+                g = HOOK.game or {}
+                return self._json({"ok": True, "game": readstats.for_game(g),
+                                   "top": readstats.top(8),
+                                   "path": readstats.PATH})
+
             if p == "/api/rules":
                 return self._json({
                     "groups": [{"key": k, "name": n, "desc": d, "items": storyhook.RULES.get(k, [])}
@@ -2050,6 +2064,7 @@ class Handler(BaseHTTPRequestHandler):
                     "log_counts": dict(counts),
                     "log_total": dict(LOG_STAT),
                     "menu_active": HOOK.filter.menu_active(),
+                    "choice_active": HOOK.filter.choice_active(),
                     "status": STATE["status"],
                     "game": {
                         "name": (g or {}).get("name", ""),
@@ -2470,6 +2485,9 @@ class Handler(BaseHTTPRequestHandler):
                     value = value[:120]
                 # 名单写法:普通文字 = 含这个词就命中;前面加 "=" = 整句一模一样才命中。
                 # 用 "=" 而不是控制字符,是因为这份名单在「过滤规则」页里玩家能直接看、直接改。
+                # ★统一存"游戏原文"形态★:界面显示的 【角色名】/[标签] 前缀是我们自己拼的,
+                #   原样存进去会导致比对永远对不上(玩家反馈"拉黑了还是读")。
+                value = storyhook.bare_for_list(value) or value
                 if mode == "exact":
                     value = "=" + value
                 bare = value.lstrip("=")
@@ -2619,6 +2637,12 @@ class Handler(BaseHTTPRequestHandler):
             if p == "/api/speak":
                 SPEAKER.say(d.get("text") or "", True)
                 return self._json({"ok": True})
+
+            if p == "/api/stats/reset":
+                r = readstats.reset(HOOK.game or {})
+                if r.get("ok"):
+                    add_log("已清零累计阅读记录", "info")
+                return self._json(r)
 
             if p == "/api/stop":
                 SPEAKER.stop()

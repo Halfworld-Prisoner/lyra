@@ -467,11 +467,20 @@ def is_story_text(text: str, min_cjk: int = 4, strict: bool = True):
         return False, "编号"
     if re.fullmatch(r"[\d\s%:/.\-+]+", s):
         return False, "数字"
-    for kw in EFF_WORDS:
-        if kw and kw in s:
-            return False, f"界面词({kw})"
+    # ★台词优先★:带引号的行就是台词,不能被界面词误杀★
+    #   玩家反馈:正常剧情里只要出现「商店」「记忆」「设置」这类词,整句就被丢掉。
+    #   所以先认台词(引号),再按界面词过滤 —— 面板文字没有引号,照旧拦得住。
     if (s[0] in "「『“" or s[-1] in "」』”") and cjk >= 1:
         return True, ""
+    for kw in EFF_WORDS:
+        if not kw or kw not in s:
+            continue
+        # 保险:这一句又长又带句末标点 / 引号 → 更像台词,放行
+        looks_like_speech = (len(s) >= 14 and any(ch in s for ch in "。！？…!?")
+                             and any(ch in s for ch in "「」『』“”"))
+        if looks_like_speech:
+            continue
+        return False, f"界面词({kw})"
     has_dialog_punct = any(ch in s for ch in DIALOG_PUNCT) or bool(re.search(r"\.{2,}$", s))
     if cjk < min_cjk and not has_dialog_punct:
         return False, f"中文少于 {min_cjk} 字"
@@ -527,6 +536,11 @@ MENU_PAT = [
 MENU_HOLD = 3.0        # 离最后一次菜单文字这么久之内 → 认为还在菜单里(暂停自动点击)
 MENU_SWALLOW = 1.5     # 紧挨着菜单文字出现的其它文字也不读(槽位缩略里的台词)
 
+# 选择/卡牌界面:几秒内连着来好几条短句 → 认为玩家正在选项画面,自动点击先停手
+CHOICE_HOLD = 25.0     # 检测到之后,暂停自动点击这么久(秒)
+CHOICE_WINDOW = 4.0    # 统计窗口:多少秒内的短句算"连着来"
+CHOICE_MIN = 3         # 至少几条不同的短句才判定为选项画面
+
 
 # 这些来源虽然在"设名字",但那不是对话框上的名字,不能拿来当发言人:
 #   角色信息面板(AdvCharacterInfo 会设成 ？？？ / <param=player_name>)
@@ -548,6 +562,24 @@ def is_menu_line(text: str) -> bool:
     return False
 
 
+def bare_for_list(s: str) -> str:
+    """把"界面显示的那一行"还原成"游戏原文",用于黑/白名单比对。
+
+    界面上我们会在句首拼 `【角色名】`(便于阅读),日志行还可能有 `[标签]` 前缀;
+    而游戏原文两者都没有。名单比对必须把这两层剥掉,否则永远对不上
+    (玩家反馈:把一句拉进黑名单,它照样被读出来)。
+    """
+    s = (s or "").strip()
+    # 循环剥:前缀可能连着出现(【角色名】[标签]原文),剥一层不够
+    for _ in range(4):
+        nxt = re.sub(r"^\[[^\]]{0,24}\]\s*", "", s)     # [标签]
+        nxt = re.sub(r"^【[^】]{1,14}】\s*", "", nxt)       # 【角色名】
+        if nxt == s:
+            break
+        s = nxt
+    return s.strip()
+
+
 class StoryFilter:
     """把游戏送来的文本过滤成"只有剧情",并自动学习界面面板。"""
 
@@ -562,6 +594,8 @@ class StoryFilter:
         self.speaker = ""
         self.speaker_t = 0.0                # 游戏最后一次给名字(含"清空")的时刻
         self.menu_t = 0.0                   # 最近一次看到"菜单界面文字"的时刻
+        self.choice_t = 0.0                  # 检测到选择/卡牌界面的时刻
+        self._short_hist = []                # 最近的短句(判定选项画面用)
         self.pending_speaker = ""
         self.pending_speaker_t = 0.0
         self.pending = ""
@@ -618,6 +652,36 @@ class StoryFilter:
         """现在是不是在存档/读档这类菜单界面里(自动点击据此停手)。"""
         return bool(self.menu_t) and (time.time() - self.menu_t) < MENU_HOLD
 
+    def note_short_line(self, text: str):
+        """每读一句都过一下:几秒内连着好几条短句 → 多半是选项/卡牌画面。
+
+        判据故意保守(短 + 无引号 + 条数够),宁可漏判:漏判只是没暂停,
+        误判会让自动点击白停 25 秒。
+        """
+        s = (text or "").strip()
+        if not s or len(s) > 24:
+            return
+        if any(ch in s for ch in "「」『』“”"):
+            return                                  # 带引号的是台词
+        if len(s) < 2:
+            return                                  # 2 字的选项词(攻击/防御)也要算
+        now = time.time()
+        self._short_hist.append((now, s))
+        self._short_hist = self._short_hist[-12:]
+        uniq = {x for ts, x in self._short_hist if now - ts <= CHOICE_WINDOW}
+        if len(uniq) >= CHOICE_MIN:
+            first = not self.choice_active()
+            self.choice_t = now
+            if first:
+                try:
+                    self.on_status("看到选择/卡牌了:自动点击先停 %d 秒,你自己点" % int(CHOICE_HOLD))
+                except Exception:
+                    pass
+
+    def choice_active(self) -> bool:
+        """现在是不是(可能)在选项/卡牌界面里。"""
+        return bool(self.choice_t) and (time.time() - self.choice_t) < CHOICE_HOLD
+
     def _drop(self, text: str, why: str):
         """丢掉一行并**说明原因**(界面日志的「已过滤」页签就靠它)。"""
         self.filtered += 1
@@ -639,21 +703,31 @@ class StoryFilter:
     def list_verdict(self, text: str) -> str:
         """返回 "block"(黑名单)/ "allow"(白名单)/ ""(没命中)。黑名单优先。"""
         t = text or ""
-        for w in EFF.get("blacklist", ()):
+        # 两种形态都拿来比:① 收到什么比什么;② 剥掉【角色名】/[标签] 之后的原文
+        forms = {t, t.strip(), bare_for_list(t)}
+        forms = {f for f in forms if f}
+
+        def hit(w: str) -> bool:
+            """这条名单规则命中了吗?"""
             if not w:
-                continue
-            if w[0] == "=":
-                if t.strip() == w[1:].strip():
-                    return "block"
-            elif w in t:
+                return False
+            exact = w[0] == "="
+            body = w[1:].strip() if exact else w
+            body_bare = bare_for_list(body)
+            for f in forms:
+                if exact:
+                    if f.strip() == body:
+                        return True
+                else:
+                    if body in f or (body_bare and body_bare in f):
+                        return True
+            return False
+
+        for w in EFF.get("blacklist", ()):
+            if hit(w):
                 return "block"
         for w in EFF.get("whitelist", ()):
-            if not w:
-                continue
-            if w[0] == "=":
-                if t.strip() == w[1:].strip():
-                    return "allow"
-            elif w in t:
+            if hit(w):
                 return "allow"
         return ""
 
@@ -859,6 +933,11 @@ class StoryFilter:
         self.recent.append((text, now))
         if len(self.recent) > 200:
             self.recent = self.recent[-120:]
+        # 这一句要被读出来 → 拿它判定是不是在选择/卡牌画面
+        try:
+            self.note_short_line((f"【{self.speaker}】{text}" if self.speaker else text))
+        except Exception:
+            pass
         return (f"【{self.speaker}】{text}" if self.speaker else text)
 
     # -- 去重判定 / 回存档重读识别 --

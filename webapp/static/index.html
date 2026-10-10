@@ -139,7 +139,7 @@
     <!-- ---------------- 实时剧情(照旧版「实时识别」) ---------------- -->
     <section class="view" id="view-realtime">
       <div class="panel">
-        <div class="panel-title">实时监控 <span class="muted sm">最近 60 秒</span></div>
+        <div class="panel-title">实时监控 <span class="muted sm">最近 60 秒</span><span class="grow"></span><button class="btn ghost sm" id="statsOpen" title="查看这台游戏的累计阅读统计"><i>◔</i> 阅读统计 <b id="statsCharsMini" style="margin-left:6px">0</b> 字</button></div>
         <div class="metric-row">
           <div class="metric-card">
             <span class="k">读取速度</span><b id="mRate">—</b><span class="u">字/秒</span>
@@ -167,7 +167,11 @@
         </div>
         <ol id="texts" class="texts"></ol>
       </div>
-    </section>
+    
+</section>
+
+
+
 
     <!-- ---------------- 角色配音 ---------------- -->
     <section class="view" id="view-cast">
@@ -799,5 +803,56 @@
 /* lyra-safety:无论开机动画/脚本出什么状况,5 秒后主界面一定可见 */
 setTimeout(function () { document.body.classList.add('ready'); }, 5000);
 </script>
+
+<!-- 阅读统计:全屏覆盖层(盖住侧栏与全部内容;左上角返回) -->
+<div class="stats-overlay" id="view-stats">
+  <div class="stats-overlay-inner">
+
+      <div class="panel">
+        <div class="stats-top">
+          <button class="btn ghost" id="statsBack" title="返回上一页"><i>←</i> 返回</button>
+          <div class="stats-title">
+            <b>阅读统计</b>
+            <span class="muted sm" id="statsGame">—</span>
+          </div>
+          <span class="grow"></span>
+          <span class="muted sm" id="statsHint">永久累计 · 关闭软件也会保留</span>
+          <button class="btn ghost sm" id="statsReset2">清零这台</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="stats-hero">
+          <div class="stats-hero-main">
+            <div class="stat-big"><b id="statsChars">0</b><span>字</span></div>
+            <div class="muted sm" id="statsToday"></div>
+            <div class="mini-stats" style="margin-top:14px">
+              <div><span>累计句数</span><b id="statsLines">0</b></div>
+              <div><span>阅读时长</span><b id="statsTime">—</b></div>
+              <div><span>平均速度</span><b id="statsAvg">—</b></div>
+              <div><span>首次开始</span><b id="statsFirst">—</b></div>
+              <div><span>最近一次</span><b id="statsLast">—</b></div>
+              <div><span>连续天数</span><b id="statsStreak">0</b></div>
+            </div>
+          </div>
+          <div class="stats-donut-wrap">
+            <svg class="stats-donut" id="statsDonut" viewBox="0 0 120 120" aria-label="最近七天占比"></svg>
+            <div class="stats-donut-legend" id="statsLegend"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">最近 14 天 <span class="muted sm">每天读了多少字 · 高度=当天字数</span></div>
+        <div class="stats-wave" id="statsWave"></div>
+        <div class="stats-days-x" id="statsWaveX"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">各游戏排行 <span class="muted sm">读得最多的排前面</span></div>
+        <div class="stats-rank" id="statsRank"><span class="muted sm">加载中…</span></div>
+      </div>
+      </div>
+</div>
 </body>
 </html>

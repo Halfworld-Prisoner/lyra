@@ -88,12 +88,49 @@ async function refreshInner() {
       const li = document.createElement('li');
       const mm = /^【([^】]+)】([\s\S]*)$/.exec(ln);
       li.innerHTML = mm ? `<span class="who">【${esc(mm[1])}】</span>${esc(mm[2])}` : esc(ln);
-      /* 右键:标成"不是剧情"(学一条忽略规则) */
-      li.oncontextmenu = (ev) => { ev.preventDefault(); markNotStory(ln); };
+      /* ★不要再绑右键=标成"不是剧情"★
+         那是自绘右键菜单上线之前的旧交互,结果与全局菜单冲突:
+         随手右键一下就把这句学成忽略规则、句子当场从列表里消失(玩家反馈的 bug)。
+         现在想标记请用右键菜单里的「标成"不是剧情"」。 */
       li.onclick = () => post('/api/speak', { text: ln });
       ol.appendChild(li);
     });
     ol.scrollTop = 0;              /* 最新在最上面 → 滚动条置顶 */
+  }
+
+
+  /* 累计阅读(永久记录):只在数值变化时改 DOM,免得每 400ms 重排 */
+  const sta = st.stats;
+  if (sta && $('statsChars')) {
+    const sig = [sta.chars, sta.lines, sta.seconds, sta.today, JSON.stringify(sta.days)].join('|');
+    if ($('statsChars').dataset.sig !== sig) {
+      $('statsChars').dataset.sig = sig;
+      $('statsChars').textContent = (sta.chars || 0).toLocaleString();
+      $('statsLines').textContent = (sta.lines || 0).toLocaleString();
+      const sec = sta.seconds || 0;
+      $('statsTime').textContent = sec >= 3600 ? (sec / 3600).toFixed(1) + ' 小时'
+        : (sec >= 60 ? Math.round(sec / 60) + ' 分钟' : Math.round(sec) + ' 秒');
+      const fmt = (ts) => {
+        if (!ts) return '—';
+        const d = new Date(ts * 1000);
+        return (d.getMonth() + 1) + '月' + d.getDate() + '日 '
+          + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+      };
+      $('statsFirst').textContent = fmt(sta.first);
+      $('statsLast').textContent = fmt(sta.last);
+      $('statsToday').textContent = sta.today ? ('今天 +' + sta.today.toLocaleString() + ' 字') : '';
+      if ($('statsPath')) $('statsPath').textContent = sta.games > 1 ? ('共 ' + sta.games + ' 台游戏') : '';
+      const box = $('statsDays');
+      const days = sta.days || [];
+      const max = Math.max(1, ...days.map((d) => d[1]));
+      box.innerHTML = days.length
+        ? days.map(([day, n]) => {
+            const hh = Math.max(3, Math.round((n / max) * 46));
+            const dd = day.slice(5).replace('-', '/');
+            return `<i class="${n ? 'on' : ''}" style="height:${hh}px" title="${day}:${n} 字"><em>${dd}</em></i>`;
+          }).join('')
+        : '<span class="muted sm">还没有记录 —— 去读一段剧情吧</span>';
+    }
   }
 
   /* 主题(以配置为准) */

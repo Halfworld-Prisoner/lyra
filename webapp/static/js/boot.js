@@ -14,7 +14,7 @@ import './views/settings.js';
 import './views/settings_extra.js';
 
 const TITLES = {
-  library: '游戏库', realtime: '实时剧情', cast: '角色配音',
+  library: '游戏库', realtime: '实时剧情', cast: '角色配音', stats: '阅读统计',
   translate: '文本翻译', rules: '过滤规则', logs: '日志', settings: '设置',
 };
 
@@ -72,8 +72,17 @@ $('allowReplay').onclick = async () => {
 };
 
 /* ---------------- 启动 ---------------- */
+/* 累计阅读清零(二次确认) */
+if ($('statsReset')) $('statsReset').onclick = async () => {
+  if (!confirm('只清空【这台游戏】的累计阅读记录,其它游戏的记录不受影响。确定吗?')) return;
+  const r = await post('/api/stats/reset', {});
+  toast(r.msg || '已清零');
+  const c = $('statsChars'); if (c) c.dataset.sig = '';      // 让下一帧重画
+};
+
 startWave();
 installContextMenu();
+import('./views/stats.js').then((m) => m.installStatsUI()).catch(() => {});
 
 /* 开机动画:固定流程,立刻开始播(动画在 css/splash.css + js/splash.js)
    数据到位后(state.js 会挂 stateReady)动画自动收尾进主界面;
@@ -81,5 +90,13 @@ installContextMenu();
 import('./splash.js')
   .then((m) => m.playSplash())
   .catch(() => document.body.classList.add('ready'));
+/* 支持 ?view=stats 这种直达(测试、分享都方便) */
+try {
+  const v = new URLSearchParams(location.search).get('view');
+  if (v) setTimeout(() => {
+    const b = document.querySelector('.nav-item[data-view="' + v + '"]');
+    if (b) b.click();
+  }, 400);
+} catch (e) {}
 refresh();
 setInterval(refresh, 400);      /* 刷新间隔:越小越跟手 */
