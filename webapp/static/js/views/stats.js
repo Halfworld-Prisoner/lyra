@@ -34,7 +34,7 @@ function drawDonut(days, total) {
     if (frac <= 0) return;
     const len = frac * C;
     out += '<circle class="seg" cx="60" cy="60" r="' + R + '" stroke="' + COLORS[i % COLORS.length] + '"'
-      + ' stroke-dasharray="' + len.toFixed(2) + ' ' + (C - len).toFixed(2) + '"'
+      + ' style="--seg:' + len.toFixed(2) + ' ' + (C - len).toFixed(2) + ';stroke-dashoffset:' + (-acc).toFixed(2) + '"'
       + ' stroke-dashoffset="' + (-acc).toFixed(2) + '" transform="rotate(-90 60 60)"></circle>';
     acc += len;
   });
@@ -66,8 +66,8 @@ function drawWave(days) {
     labels.push(key.slice(5).replace('-', '/'));
   }
   const max = Math.max(1, ...out.map((x) => x.n));
-  box.innerHTML = out.map((x) => '<i class="' + (x.n ? 'has' : '') + (x.today ? ' today' : '')
-    + '" style="height:' + Math.max(4, Math.round((x.n / max) * 100)) + '%"'
+  box.innerHTML = out.map((x, i) => '<i class="' + (x.n ? 'has' : '') + (x.today ? ' today' : '')
+    + '" style="--hh:' + Math.max(4, Math.round((x.n / max) * 100)) + '%;transition-delay:' + (i * 28) + 'ms"'
     + ' title="' + x.key + ':' + x.n.toLocaleString() + ' 字"><em>' + x.n.toLocaleString() + '</em></i>').join('');
   const xb = $('statsWaveX');
   if (xb) xb.innerHTML = labels.map((l) => '<span>' + l + '</span>').join('');
@@ -88,8 +88,8 @@ function drawRank(rows) {
   if (!box) return;
   if (!rows || !rows.length) { box.innerHTML = '<span class="muted sm">还没有记录</span>'; return; }
   const max = Math.max(1, ...rows.map((r) => r.chars));
-  box.innerHTML = rows.map((r) => '<div><span>' + esc(r.name || '(未命名)') + '</span>'
-    + '<span class="bar"><i style="width:' + Math.round((r.chars / max) * 100) + '%"></i></span>'
+  box.innerHTML = rows.map((r, i) => '<div><span>' + esc(r.name || '(未命名)') + '</span>'
+    + '<span class="bar"><i style="--ww:' + Math.round((r.chars / max) * 100) + '%;transition-delay:' + (i * 60) + 'ms"></i></span>'
     + '<b>' + (r.chars || 0).toLocaleString() + ' 字</b></div>').join('');
 }
 
@@ -127,30 +127,59 @@ export function renderStats() {
 }
 
 /* 入口 / 返回 / 清零 */
+/* 数字滚动(只在打开时做一次,免得每帧都在动) */
+function countUp(el, to, ms) {
+  if (!el) return;
+  const from = Number(String(el.textContent).replace(/[^\d]/g, '')) || 0;
+  if (from === to) { el.textContent = to.toLocaleString(); return; }
+  const t0 = performance.now();
+  const step = (now) => {
+    const k = Math.min(1, (now - t0) / (ms || 650));
+    const v = Math.round(from + (to - from) * (1 - Math.pow(1 - k, 3)));
+    el.textContent = v.toLocaleString();
+    if (k < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
 export function installStatsUI() {
   const open = $('statsOpen');
   const back = $('statsBack');
-  const ov = $('view-stats');
+  const ov = $('statsOverlay');
+
   const show = () => {
     if (!ov) return;
+    ov.classList.remove('closing');
+    ov.classList.remove('drawn');            // 先回到"未绘制"状态
     ov.classList.add('on');
-    document.body.classList.add('stats-open');
-    lastSig = '';
-    loadRank(true).then(drawRank);
+    void ov.offsetWidth;                     // 强制重排,让动画从头播
+    lastSig = '';                            // 重画图表(圆盘/波浪条从 0 开始)
     renderStats();
+    loadRank(true).then((rows) => { drawRank(rows); requestAnimationFrame(() => ov.classList.add('drawn')); });
+    requestAnimationFrame(() => ov.classList.add('drawn'));
+    const st = (store.S || {}).stats || {};
+    countUp($('statsChars'), st.chars || 0, 700);
+    countUp($('statsCharsMini'), st.chars || 0, 700);
   };
+
   const hide = () => {
-    if (!ov) return;
-    ov.classList.remove('on');
-    document.body.classList.remove('stats-open');
+    if (!ov || !ov.classList.contains('on')) return;
+    ov.classList.add('closing');             // 先播退出动画
+    setTimeout(() => {
+      ov.classList.remove('on', 'closing', 'drawn');
+      document.body.classList.remove('stats-open');
+    }, 340);
   };
+
   if (open) open.onclick = show;
   if (back) back.onclick = hide;
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hide(); });
-  /* ?stats=1 直接打开(方便测试/分享) */
   try {
-    if (new URLSearchParams(location.search).get('stats')) setTimeout(show, 600);
+    const q = new URLSearchParams(location.search);
+    if (q.get('stats')) setTimeout(show, 600);
+    if (q.get('autoclose')) setTimeout(() => { show(); setTimeout(hide, 2000); }, 600);   // 调试用
   } catch (e) { /* 忽略 */ }
+
   const rs = $('statsReset2');
   if (rs) rs.onclick = async () => {
     if (!confirm('只清空【这台游戏】的累计阅读记录,其它游戏不受影响。确定吗?')) return;

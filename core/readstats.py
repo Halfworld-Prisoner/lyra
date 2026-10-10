@@ -16,8 +16,8 @@ import time
 
 _DIR = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "Lyra")
 PATH = os.path.join(_DIR, "readstats.json")
-SAVE_EVERY = 5.0          # 至少隔这么久落一次盘
-SAVE_LINES = 20           # 或者攒够这么多句
+SAVE_EVERY = 1.0          # 至少隔这么久落一次盘(1 秒:强杀进程最多丢 1 秒)
+SAVE_LINES = 3            # 攒够这么多句立刻落盘
 
 _lock = threading.Lock()
 _CACHE: dict | None = None
@@ -70,6 +70,25 @@ def _save(force: bool = False) -> None:
         _pending_lines = 0
     except Exception:
         pass
+
+
+def _flusher():
+    """后台每秒检查:有脏数据就写盘。
+
+    为什么要它:玩家可能直接关窗口或用任务管理器杀进程,那种情况走不到"退出保存"。
+    有它兜底,最多丢最后 1 秒的字,不会出现"读了一大段、重启就没了"。
+    """
+    while True:
+        try:
+            time.sleep(1.0)
+            with _lock:
+                if _dirty:
+                    _save(force=True)
+        except Exception:
+            pass
+
+
+threading.Thread(target=_flusher, daemon=True).start()
 
 
 def key_of(game: dict) -> str:

@@ -140,14 +140,69 @@ html[data-theme] *::-webkit-scrollbar-track { background: transparent !important
   background: linear-gradient(90deg, var(--accent), var(--accent-2, #4aa8ff)); transition: width .6s ease; }
 
 
-/* 阅读统计:全屏覆盖层(盖住侧栏和所有内容) */
+
+
+/* ================= 阅读统计:全屏覆盖层 + 进出动画 ================= */
 .stats-overlay {
   position: fixed; inset: 0; z-index: 900; display: none;
-  background: var(--bg); overflow: auto;
-  padding: 18px 22px 28px;
-  animation: statsIn .22s ease;
+  background: var(--bg); overflow: auto; padding: 18px 22px 28px;
 }
-.stats-overlay.on { display: block; }
-@keyframes statsIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.stats-overlay.on { display: block; animation: statsBgIn .26s ease both; }
+.stats-overlay.closing { animation: statsBgOut .3s ease both; pointer-events: none; }
 .stats-overlay-inner { max-width: 1180px; margin: 0 auto; display: grid; gap: 12px; }
+
+/* 背景 */
+@keyframes statsBgIn  { from { opacity: 0; backdrop-filter: blur(0); } to { opacity: 1; } }
+@keyframes statsBgOut { from { opacity: 1; } to { opacity: 0; } }
+
+/* 卡片逐块升起(进入) */
+.stats-overlay.on .stats-overlay-inner > * { animation: statsCardIn .42s cubic-bezier(.2,.8,.2,1) both; }
+.stats-overlay.on .stats-overlay-inner > *:nth-child(1) { animation-delay: .02s; }
+.stats-overlay.on .stats-overlay-inner > *:nth-child(2) { animation-delay: .08s; }
+.stats-overlay.on .stats-overlay-inner > *:nth-child(3) { animation-delay: .14s; }
+.stats-overlay.on .stats-overlay-inner > *:nth-child(4) { animation-delay: .20s; }
+.stats-overlay.on .stats-overlay-inner > *:nth-child(5) { animation-delay: .26s; }
+@keyframes statsCardIn {
+  from { opacity: 0; transform: translateY(16px) scale(.985); }
+  to   { opacity: 1; transform: none; }
+}
+/* 退出:整页下沉淡出 */
+.stats-overlay.closing .stats-overlay-inner > * { animation: statsCardOut .3s cubic-bezier(.4, 0, .75, .25) both; }
+.stats-overlay.closing .stats-overlay-inner > *:nth-child(1) { animation-delay: 0ms; }
+.stats-overlay.closing .stats-overlay-inner > *:nth-child(2) { animation-delay: 30ms; }
+.stats-overlay.closing .stats-overlay-inner > *:nth-child(3) { animation-delay: 60ms; }
+.stats-overlay.closing .stats-overlay-inner > *:nth-child(4) { animation-delay: 90ms; }
+.stats-overlay.closing .stats-overlay-inner > *:nth-child(5) { animation-delay: 120ms; }
+@keyframes statsCardOut {
+  from { opacity: 1; transform: none; }
+  to   { opacity: 0; transform: translateY(34px) scale(.965); }
+}
+
+/* 大数字:进入时轻微放大 */
+.stats-overlay.on .stat-big b { animation: statNum .5s cubic-bezier(.2,.9,.25,1) both; animation-delay: .18s; }
+@keyframes statNum { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+/* 圆盘:自己画出来(每段依次铺开) */
+.stats-donut .seg { stroke-dasharray: 0 999; transition: stroke-dasharray .85s cubic-bezier(.3,.9,.3,1); }
+.stats-overlay.drawn .stats-donut .seg { stroke-dasharray: var(--seg, 0 999); }
+.stats-overlay.drawn .stats-donut .seg { transition: stroke-dasharray .85s cubic-bezier(.3,.9,.3,1); }
+.stats-donut .hole-t, .stats-donut .hole-s { opacity: 0; transition: opacity .5s ease .35s; }
+.stats-overlay.drawn .stats-donut .hole-t,
+.stats-overlay.drawn .stats-donut .hole-s { opacity: 1; }
+
+/* 波浪条:从底部长出来 */
+.stats-wave i { transform-origin: bottom center; height: 0 !important; transition: height .55s cubic-bezier(.2,.8,.2,1); }
+.stats-overlay.drawn .stats-wave i { height: var(--hh, 4%) !important; }
+.stats-wave i { animation: none; }
+
+/* 排行条:从 0 展开 */
+.stats-rank .bar i { width: 0 !important; transition: width .7s cubic-bezier(.2,.8,.2,1); }
+.stats-overlay.drawn .stats-rank .bar i { width: var(--ww, 0%) !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  .stats-overlay.on, .stats-overlay.closing,
+  .stats-overlay.on .stats-overlay-inner > *, .stats-overlay.on .stat-big b { animation: none !important; }
+  .stats-donut .seg, .stats-wave i, .stats-rank .bar i { transition: none !important; }
+}
+
 .stats-entry { display: none; }
