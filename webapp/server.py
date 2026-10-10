@@ -2644,6 +2644,13 @@ class Handler(BaseHTTPRequestHandler):
                     add_log("已清零累计阅读记录", "info")
                 return self._json(r)
 
+            if p.startswith("/api/remote"):
+                # 局部 import —— 不管全局那句在不在、在哪,这里都能用
+                from core import remote as remote_mod
+                remote_mod.ensure(cfgm, add_log, Handler, STATIC_DIR)
+                if remote_mod.handle(self, p, d) is not False:
+                    return
+
             if p == "/api/stop":
                 SPEAKER.stop()
                 return self._json({"ok": True})

@@ -206,3 +206,179 @@ html[data-theme] *::-webkit-scrollbar-track { background: transparent !important
 }
 
 .stats-entry { display: none; }
+
+
+/* ================= 阅读统计:主题适配修正(数字不再被裁) ================= */
+/* 数字一律用主题实色,不用渐变裁切 —— 浅色主题也不会裁、对比度也够 */
+.stat-big { display: flex; align-items: baseline; gap: 10px; overflow: visible !important; }
+.stat-big b,
+.stats-entry-num b {
+  font-size: 44px;
+  line-height: 1.24;                 /* 给足行高,避免数字顶部被裁 */
+  padding: 2px 0 4px;
+  font-weight: 700;
+  color: var(--accent);              /* ★主题色★ */
+  background: none !important;
+  -webkit-text-fill-color: currentColor !important;
+  background-clip: border-box !important;
+  -webkit-background-clip: border-box !important;
+  display: inline-block;
+  overflow: visible !important;
+}
+.stat-big span { color: var(--muted); font-size: 14px; line-height: 1.4; }
+.stat-big em { color: var(--muted); font-size: 12.5px; }
+
+/* 迷你卡片里的数字:用主文字色,浅色主题下也清楚 */
+.mini-stats > div > b, .stats-rank b { color: var(--text); }
+
+/* 圆盘/波浪条:兜底色跟主题走(不再写死蓝紫) */
+.stats-wave i { background: linear-gradient(180deg, var(--accent), var(--accent-soft, var(--accent))); }
+.stats-rank .bar i { background: linear-gradient(90deg, var(--accent), var(--accent-soft, var(--accent))); }
+.stats-donut .hole-t { fill: var(--text); }
+.stats-donut .hole-s { fill: var(--muted); }
+.stats-donut .ring-bg { stroke: var(--soft); }
+
+/* 覆盖层在浅色主题下的层次:给卡片一点边,免得糊在一起 */
+.stats-overlay .panel { border: 1px solid var(--line); }
+.stats-top .btn, .stats-overlay .btn { color: var(--text); }
+
+
+/* ================= 阅读统计:用满窗口 + 宽屏分栏 ================= */
+.stats-overlay { padding: 14px clamp(10px, 2vw, 30px) 22px; }
+.stats-overlay-inner {
+  max-width: none !important;            /* ★不再锁 1180px,用满宽度★ */
+  width: 100%;
+  min-height: calc(100vh - 44px);
+  align-content: start;
+  grid-template-columns: 1fr;            /* 默认单列(窄窗口) */
+  gap: 12px;
+}
+/* 宽屏:上两块通栏,后两块并排;图表也跟着变大 */
+@media (min-width: 1080px) {
+  .stats-overlay-inner { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); }
+  .stats-overlay-inner > *:nth-child(1),
+  .stats-overlay-inner > *:nth-child(2) { grid-column: 1 / -1; }
+}
+/* 超宽屏(2K/4K):三块一起排,排行放右侧 */
+@media (min-width: 1700px) {
+  .stats-overlay-inner { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, .95fr); }
+  .stats-overlay-inner > *:nth-child(1) { grid-column: 1 / -1; }
+  .stats-overlay-inner > *:nth-child(2) { grid-column: 1 / -1; }
+  .stats-overlay-inner > *:nth-child(3) { grid-column: 1 / 3; }
+  .stats-overlay-inner > *:nth-child(4) { grid-column: 3 / 4; }
+}
+/* 图表随空间长大 */
+.stats-hero { gap: clamp(16px, 2.5vw, 40px); }
+.stats-hero-main { min-width: 260px; }
+.stats-donut { width: clamp(150px, 13vw, 230px); height: clamp(150px, 13vw, 230px); }
+.stats-wave { height: clamp(110px, 16vh, 220px); }
+.stat-big b { font-size: clamp(38px, 3.6vw, 64px); }
+@media (min-width: 1080px) {
+  .stats-overlay .mini-stats { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+}
+/* 让"最近 14 天"面板把纵向空当吃掉一点 */
+.stats-overlay-inner > *:nth-child(3) { display: flex; flex-direction: column; }
+.stats-overlay-inner > *:nth-child(3) .stats-wave { flex: 1; }
+
+
+/* 收尾修正:波浪条要有高度、纵向把空白填掉 */
+.stats-wave { min-height: 150px; height: auto !important; align-items: flex-end; }
+.stats-overlay-inner > *:nth-child(3) .stats-wave { min-height: 170px; }
+.stats-wave i { min-height: 6px; }
+@media (min-width: 1080px) {
+  .stats-overlay-inner {
+    grid-template-rows: auto auto minmax(240px, 1fr);
+    min-height: calc(100vh - 40px);
+  }
+  .stats-overlay-inner > *:nth-child(3),
+  .stats-overlay-inner > *:nth-child(4) { align-self: stretch; }
+}
+
+
+/* 最终平衡:宽度用满,高度不硬撑(波浪条给一个合理区间) */
+.stats-overlay-inner { min-height: auto !important; align-content: start !important; }
+@media (min-width: 1080px) {
+  .stats-overlay-inner { grid-template-rows: auto auto auto !important; }
+  .stats-overlay-inner > *:nth-child(3), .stats-overlay-inner > *:nth-child(4) { align-self: start !important; }
+}
+.stats-wave { min-height: 132px !important; max-height: 210px !important; align-items: flex-end; }
+.stats-overlay-inner > *:nth-child(3) .stats-wave { min-height: 150px !important; max-height: 210px !important; }
+
+
+/* ---- 跨设备访问 ---- */
+.remote-row { border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; margin-bottom: 8px; background: var(--panel-2, var(--soft)); }
+.remote-k { font-size: 13px; font-weight: 600; display: flex; gap: 8px; align-items: center; }
+.remote-u { font-family: Consolas, monospace; font-size: 14px; color: var(--accent); margin: 2px 0; user-select: all; }
+.remote-h { font-size: 11.5px; color: var(--muted); }
+
+
+/* ================= 扩展模块 / 跨远程访问控制台 ================= */
+.ext-row { display: flex; align-items: center; gap: 14px; }
+.ext-info { flex: 1; min-width: 0; }
+.ext-info b { display: block; font-size: 14px; margin-bottom: 3px; }
+.ext-info span { line-height: 1.7; }
+
+.dev-overlay { position: fixed; inset: 0; z-index: 950; display: none; background: var(--bg);
+  grid-template-columns: 232px minmax(0, 1fr); }
+.dev-overlay.on { display: grid; animation: devIn .24s ease both; }
+@keyframes devIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.dev-overlay.closing { animation: devOut .2s ease both; }
+@keyframes devOut { from { opacity: 1; } to { opacity: 0; } }
+
+.dev-side { background: var(--panel); border-right: 1px solid var(--line); padding: 16px 12px;
+  display: flex; flex-direction: column; gap: 8px; }
+.dev-brand { display: flex; gap: 10px; align-items: center; padding: 4px 6px 14px; }
+.dev-logo { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2, #4aa8ff)); color: #fff; font-size: 17px; }
+.dev-brand b { display: block; font-size: 14.5px; }
+.dev-nav { display: flex; flex-direction: column; gap: 4px; }
+.dev-nav button { display: flex; align-items: center; gap: 10px; padding: 11px 12px; border: 0; border-radius: 11px;
+  background: transparent; color: var(--text); font: 500 14px/1 inherit; cursor: pointer; text-align: left; }
+.dev-nav button i { font-style: normal; width: 16px; text-align: center; opacity: .85; }
+.dev-nav button:hover { background: var(--soft); }
+.dev-nav button.on { background: linear-gradient(135deg, var(--accent), var(--accent-2, #4aa8ff)); color: #fff; font-weight: 600; }
+.dev-foot { margin-top: auto; font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; padding: 8px 6px 0; }
+.dev-foot .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+
+.dev-main { padding: 18px clamp(14px, 2.4vw, 30px) 30px; overflow: auto; }
+.dev-top { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.dev-top h1 { font-size: 19px; margin: 0; }
+.dev-top .grow { flex: 1; }
+.dev-pin { font: 700 46px/1 monospace; letter-spacing: .32em; text-align: center; padding: 22px 0 18px;
+  color: var(--accent); }
+.dev-set { display: grid; gap: 10px; }
+.dev-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13.5px; }
+.dev-line > span { flex: 1; min-width: 200px; }
+.remote-row { border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; margin-bottom: 8px; background: var(--soft); }
+.remote-k { font-size: 13.5px; font-weight: 600; display: flex; gap: 8px; align-items: center; }
+.remote-u { font-family: Consolas, monospace; font-size: 14.5px; color: var(--accent); margin: 3px 0; user-select: all; }
+.remote-h { font-size: 11.5px; color: var(--muted); }
+@media (max-width: 860px) { .dev-overlay { grid-template-columns: 1fr; }
+  .dev-side { flex-direction: row; align-items: center; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+  .dev-brand, .dev-foot { display: none; } .dev-nav { flex-direction: row; } }
+
+
+/* 只读数值(锁死显示,不带输入框)*/
+.dev-lock { font: 600 15px/1 Consolas, monospace; color: var(--accent); background: var(--soft);
+  border: 1px solid var(--line); border-radius: 8px; padding: 7px 14px; user-select: all; }
+.dev-lock::before { content: "🔒 "; font-size: 12px; opacity: .8; }
+
+
+/* 扩展模块:状态行 + 适配 */
+.ext-stat { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px;
+  align-items: center; margin-top: 12px; }
+.ext-stat > div { background: var(--soft); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
+.ext-stat span { display: block; font-size: 11.5px; color: var(--muted); }
+.ext-stat b { font-size: 14.5px; font-family: Consolas, monospace; user-select: all; }
+.ext-stat .ext-url b { font-size: 13px; }
+.ext-stat .btn { align-self: center; }
+
+/* 设置页窄窗口:两列挤 → 自动单列 */
+@media (max-width: 1080px) {
+  #view-settings .settings-grid, #view-settings .cols, #view-settings .panel-row { grid-template-columns: 1fr !important; }
+  #view-settings .panel { padding: 14px; }
+}
+@media (max-width: 720px) {
+  .ext-row { flex-direction: column; align-items: flex-start; }
+  .ext-stat { grid-template-columns: 1fr 1fr; }
+}

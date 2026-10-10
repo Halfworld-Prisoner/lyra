@@ -82,6 +82,9 @@ if ($('statsReset')) $('statsReset').onclick = async () => {
 
 startWave();
 installContextMenu();
+import('./views/device.js').then((m) => m.installDevUI())
+  .catch((e) => { window.__JSERR = 'device:' + e; });
+/* remote.js 的功能已并入 device.js */
 import('./views/stats.js').then((m) => m.installStatsUI()).catch(() => {});
 
 /* 开机动画:固定流程,立刻开始播(动画在 css/splash.css + js/splash.js)
