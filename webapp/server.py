@@ -1220,7 +1220,7 @@ HOOK.filter.strict = bool(_hook_cfg.get("strict", True))
 HOOK.filter.extra_words = list(_hook_cfg.get("extra_words") or [])
 HOOK.filter.ignored_labels = set(_hook_cfg.get("ignored_labels") or [])
 HOOK.filter.ignored_texts = set(_hook_cfg.get("ignored_texts") or [])
-HOOK.profile = cfgm.get().get("hook_profile") or "gameonly"
+HOOK.profile = cfgm.get().get("hook_profile") or "tmpro"
 HOOK.profile_args = cfgm.get().get("hook_args") or "any"
 HOOK.start()
 
@@ -1933,7 +1933,7 @@ class Handler(BaseHTTPRequestHandler):
                         "theme": cfg.get("theme"),
                         "on_top": cfg.get("on_top"), "watch_game": cfg.get("watch_game"),
                         "hook_proxy": cfg.get("hook_proxy") or "auto",
-                        "hook_profile": cfg.get("hook_profile") or "gameonly",
+                        "hook_profile": cfg.get("hook_profile") or "tmpro",
                         "float_on": cfg.get("float_on", True) is not False,
                         "float_corner": cfg.get("float_corner", 18),
                         # ★角色配音总开关也要放进 settings★
@@ -2619,7 +2619,7 @@ class Handler(BaseHTTPRequestHandler):
                 if "float_on" in d or "float_corner" in d:
                     _float_apply()                     # 悬浮窗开/关、圆角变化
                 if "hook_profile" in d or "hook_args" in d:
-                    HOOK.profile = cfg.get("hook_profile") or "gameonly"
+                    HOOK.profile = cfg.get("hook_profile") or "tmpro"
                     HOOK.profile_args = cfg.get("hook_args") or "any"
                     set_status(f"LDC 档位已改为 {HOOK.profile} —— 重新点一次「安装 LDC」再重启游戏才生效")
                     return self._json({"ok": True, "msg": "档位已保存,重新安装 LDC后生效"})

@@ -216,6 +216,7 @@ DEFAULT_RULES = {k: list(v) for k, v in RULES.items()}
 GAME_PROFILES = [
     {
         "key": "utage",
+        "ldc_tier": "gameonly",          # ★UTAGE 自己的文本系统:只能 gameonly★
         "name": "UTAGE ADV(Knights College 1 / 2)",
         "note": "日式 ADV 引擎:台词走 AdvMessageWindow.set_Text,名字走 set_NameText / "
                 "set_CharacterLabel(片假名原文),信息面板 AdvCharacterInfo 会塞 ？？？。",
@@ -281,6 +282,32 @@ GAME_PROFILES = [
             "menu_words": ["牌库", "商店", "牌组", "卡组", "卡牌", "对战", "购买", "浏览"],
         },
     },
+    {
+        "key": "abettertomorrow",
+        "ldc_tier": "tmpro",             # ★TMP 系:必须 tmpro,否则漏对白★
+        "name": "A Better Tomorrow(Unity IL2CPP / TMP)",
+        "note": "实测:文本全部走 TMPro.TMP_Text.set_text;菜单按钮(隐藏/自动/历史…)也会当文本送进来,"
+                "而且「隐藏」这个按钮会被误当成角色名 —— 所以它们全进名字黑名单。",
+        "match_exe": ("better tomorrow", "bettertomorrow", "tomorrow"),
+        "match_method": ("tmpro.tmp_text",),
+        "groups": {
+            "menu_words": [
+                "新游戏", "继续游戏", "读取存档", "存档", "读/存档", "历史", "自动",
+                "隐藏", "设置", "关于", "退出", "返回主页", "返回标题", "跳过",
+                "关闭", "确定", "取消", "音量", "全屏", "窗口化", "语言",
+            ],
+            "ui_keywords": [
+                "继续游戏", "返回主页", "隐藏对话框", "自动播放", "读/存档",
+            ],
+            # ★最关键的一条★:这些按钮文字曾被当成角色名(【隐藏】xxx)
+            "name_blacklist": [
+                "隐藏", "自动", "历史", "存档", "读/存档", "设置", "关于", "退出",
+                "新游戏", "继续游戏", "返回主页", "返回标题", "跳过", "关闭",
+                "确定", "取消", "音量", "全屏", "窗口化", "语言", "上一页", "下一页",
+            ],
+            "junk_text": ["A Better Tomorrow", "ABetterTomorrow"],
+        },
+    },
 ]
 
 PROFILE_BY_KEY = {p["key"]: p for p in GAME_PROFILES}
@@ -319,6 +346,14 @@ def set_active_profile(key):
         ACTIVE_PROFILE = key
         rebuild_eff()
     return ACTIVE_PROFILE
+
+
+def tier_for(key) -> str:
+    """这款游戏该用哪个 LDC 档位(没说就按默认)。"""
+    p = PROFILE_BY_KEY.get(key or "")
+    if p and p.get("ldc_tier"):
+        return p["ldc_tier"]
+    return "tmpro"
 
 
 def match_profile(game_path: str, methods_seen=None):
@@ -1136,7 +1171,7 @@ class HookManager:
         self._thread = None
         self._running = False
         self.skipped = 0        # 被丢掉的引擎噪音行数
-        self.profile = "gameonly"  # IL2CPP LDC 档位:gameonly / tmpro_setonly / tmpro / all
+        self.profile = "tmpro"     # IL2CPP LDC 档位:gameonly / tmpro_setonly / tmpro / all  (gameonly 太窄会漏对白,实测 ABT 只挂到 2 个特效方法)
         self.profile_args = "any"   # any(含字符数组,抓得多)/ string(只要字符串参数)
         self._behind = ""       # 上一轮读不完时提示落后多少行
         self._stall = 0         # 连续多少轮"文件在长但位置没动"
@@ -1551,6 +1586,13 @@ class HookManager:
             key = match_profile(g.get("exe") or g.get("dir") or "", self._methods_seen)
             if key != ACTIVE_PROFILE:
                 set_active_profile(key)
+                try:
+                    want_tier = tier_for(key)
+                    if want_tier and self.profile != want_tier:
+                        self.profile = want_tier
+                        self.write_mode()
+                except Exception:
+                    pass
                 if key:
                     self.on_status("已识别到「%s」,启用它的专用过滤规则"
                                    % PROFILE_BY_KEY[key]["name"])

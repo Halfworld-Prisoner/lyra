@@ -422,6 +422,14 @@ class Translator:
         return src
 
     def _translate(self, src: str, aicfg, timeout: int):
+        """把一句原文交给 AI 翻成简体中文。
+
+        设计取舍(实测踩过的坑):
+          · **一次调用**为主 —— 之前给每句做"符号重试",长对话被拖到十几秒甚至超时,
+            玩家看到的是"翻译很慢""翻译失败";
+          · 符号用"清单写进提示词"约束,只有**短句**(≤40 字)才为符号多打一次;
+          · 任何情况下都不返回空字符串(空响应会让 XUnity 显示"翻译失败"并缓存下来)。
+        """
         try:
             from core import ai as ai_mod
         except Exception:
@@ -447,45 +455,32 @@ class Translator:
             "· 文本很短(一个词、一个按钮)时,给最自然的界面用词(例如 Save→保存)\n"
             "· 如果原文已经是简体中文,原样返回"
         )
-        prot, marks = _protect_symbols(src)          # 符号 → ⟦n⟧
-        sys2 = system
-        if marks:
-            sys2 = (system + "\n★这条文本里的 [[0]] [[1]] … 是**占位符**,代表原文的标点与符号。"
-                             "你必须把它们**原样、按原顺序全部保留**在译文里(数量一个不少),"
-                             "绝对不要翻译、删除、改动或新增这些记号。")
+        syms = _symbols(src)
+        if syms:
+            listed = " ".join("%s×%d" % (c, n) for c, n in list(syms.items())[:12])
+            system += ("\n★本句的符号清单(必须一个不少、按原顺序、原样保留):" + listed +
+                       "。译文里这些符号的数量与位置要和原文一致;不许改成别的符号,也不许删掉。")
         try:
-            out = ai_mod._call(sys2, prot, aicfg, timeout, temperature=0.2)
+            out = ai_mod._call(system, src, aicfg, timeout, temperature=0.2)
         except Exception as e:
             self.last_error = f"{type(e).__name__}: {str(e)[:120]}"
             return ""
-        out = _restore_symbols((out or "").strip(), marks, src)   # [[n]] → 原符号(按原文对齐)
-        out = to_simplified(out)
-        if _looks_broken(out, src):
-            # 还原失败 → 用原文重来一次(不带占位符,纯提示词约束);再不行就返回原文
-            self.last_error = "符号还原失败,已重试"
-            try:
-                out = to_simplified((ai_mod._call(system, src, aicfg, timeout, temperature=0.1) or "").strip())
-            except Exception:
-                out = ""
-            if _looks_broken(out, src) or _missing_symbols(src, out):
-                self.last_error = "译文与原文符号对不上,这一句按原文显示"
-                return ""
+        out = to_simplified((out or "").strip())
+        if is_bad_output(out, src):
+            self.last_error = "AI 没给出可用的简体中文译文"
+            return ""
         miss = _missing_symbols(src, out)
-        if miss and out:
-            # 漏了符号 → 把"哪个符号、原文几次、你只给了几次"讲清楚,再要一次
-            detail = "、".join("%s(原文 %d 个,你只给了 %d 个)" % (c, n, m) for c, n, m in miss[:6])
-            fix_sys = (system + "\n★上一次的译文漏掉了符号:" + detail +
-                       "。请**只补回这些符号**、其余文字保持不变,重新输出完整译文。")
+        # 短句才为符号多打一次 AI;长句不为一个标点拖慢整段对话
+        if miss and len(src) <= 40 and len(miss) <= 3:
             try:
-                out2 = _restore_symbols((ai_mod._call(fix_sys, prot, aicfg, timeout, temperature=0.1) or "").strip(), marks, src)
-                out2 = to_simplified(out2)
+                fix_sys = (system + "\n★上一次的译文漏掉了这些符号:" +
+                           "、".join(c for c, _n, _m in miss[:4]) +
+                           "。请**只补回这些符号**,其余文字保持不变,重新输出完整译文。")
+                out2 = to_simplified((ai_mod._call(fix_sys, src, aicfg, timeout, temperature=0.1) or "").strip())
                 if out2 and len(_missing_symbols(src, out2)) < len(miss):
                     out = out2
             except Exception:
                 pass
-        if is_bad_output(out, src):
-            self.last_error = "AI 没给出可用的简体中文译文"
-            return ""
         self.last_error = ""
         return out
 
